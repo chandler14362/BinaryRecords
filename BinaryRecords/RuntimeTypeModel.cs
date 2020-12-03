@@ -1,9 +1,11 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
+using BinaryRecords.Delegates;
+using BinaryRecords.Providers;
 
 namespace BinaryRecords
 {
@@ -11,20 +13,52 @@ namespace BinaryRecords
     
     public static class RuntimeTypeModel
     {
-        private static Dictionary<Type, (Delegate serialize, Delegate deserialize)> _registeredTypes = new();
-
         private static Dictionary<Type, RecordConstructionModel> _constructionModels = new();
 
-        public static IReadOnlyDictionary<Type, RecordConstructionModel> ConstructionModels => _constructionModels;
+        private static List<ExpressionGeneratorProvider> _generatorProviders = new();
         
-        public static void Register<T>(SerializationConstants.SerializeDelegate<T> serializer, SerializationConstants.DeserializeDelegate<T> deserializer)
+        public static IReadOnlyDictionary<Type, RecordConstructionModel> ConstructionModels => _constructionModels;
+
+        static RuntimeTypeModel()
+        {
+            // Register the builtin generator providers
+            foreach (var generatorProviderModel in BuiltinGeneratorProviders.GetDefaultProviders())
+                Register(generatorProviderModel);
+        }
+        
+        public static void Register<T>(SerializeGenericDelegate<T> serializer, DeserializeGenericDelegate<T> deserializer)
         {
             var type = typeof(T);
-            if (SerializationConstants.TryGetPrimitiveSerializationPair(type, out _) ||
-                !_registeredTypes.TryAdd(type, (serializer, deserializer)))
-            {
+            
+            // Check if we have any providers already interested in the type
+            if (_generatorProviders.Any(model => model.IsInterested(type)))
                 throw new Exception($"Failed to add already existing type: {nameof(T)}");
-            }
+
+            var serializerDelegate = serializer;
+            var deserializerDelegate = deserializer;
+            var provider = new ExpressionGeneratorProvider(
+                IsInterested: type => type == typeof(T),
+                Validate: type => true,
+                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) =>
+                {
+                    var callable = Expression.Constant(serializerDelegate.Target);
+                    return Expression.Call(callable, serializerDelegate.Method, stackFrame.GetParameter("buffer"),
+                        dataAccess);
+                },
+                GenerateDeserializeExpression: (serializer, type, stackFrame) =>
+                {
+                    var callable = Expression.Constant(deserializerDelegate.Target);
+                    return Expression.Call(callable, deserializerDelegate.Method, stackFrame.GetParameter("buffer"));
+                }
+            );
+            _generatorProviders.Add(provider);
+        }
+        
+        public static void Register(ExpressionGeneratorProvider expressionGeneratorProvider)
+        {
+            if (_generatorProviders.Contains(expressionGeneratorProvider))
+                throw new Exception();
+            _generatorProviders.Add(expressionGeneratorProvider);
         }
 
         public static void LoadAssemblyRecordTypes(Assembly assembly)
@@ -50,7 +84,7 @@ namespace BinaryRecords
                 LoadAssemblyRecordTypes(loadedAssembly);
             }
 
-            var serializer = new BinarySerializer(_constructionModels, _registeredTypes);
+            var serializer = new BinarySerializer(_constructionModels, _generatorProviders);
             serializer.GenerateRecordSerializers();
             return serializer;
         }
@@ -111,34 +145,19 @@ namespace BinaryRecords
             return setMethod != null && setMethod.IsPublic;
         }
 
-        private static bool IsTypeSerializable(Type type)
+        public static bool IsTypeSerializable(Type type)
         {
-            // Now get the underlying type and see if we can serialize it
-            if (SerializationConstants.TryGetPrimitiveSerializationPair(type, out var primitivePair) ||
-                _registeredTypes.ContainsKey(type) ||
-                _constructionModels.ContainsKey(type))
-                return true;
+            // See if any providers want to handle the type
+            var provider = _generatorProviders.FirstOrDefault(model => model.IsInterested(type));
+            if (provider != null)
+                return provider.Validate(type);
 
-            RecordConstructionModel constructionModel;
-            
-            // Check if we are dealing with a serializable collection
-            if (type.ImplementsGenericInterface(typeof(ICollection<>)))
-            {
-                // Try to generate a construction model for each generic arg
-                var genericArgs = type.GetGenericArguments();
-                return genericArgs.Length != 0 && genericArgs.All(IsTypeSerializable);
-            }
-            
-            // Check if we are dealing with a tuple type
-            if (type.GetInterface(nameof(System.Runtime.CompilerServices.ITuple)) != null)
-            {
-                // Try to generate a construction model for each generic arg
-                var genericArgs = type.GetGenericArguments();
-                return genericArgs.Length != 0 && genericArgs.All(IsTypeSerializable);
-            }
+            // Now get the underlying type and see if we can serialize it
+            if (_constructionModels.ContainsKey(type))
+                return true;
             
             // Try to generate a construction model for the type
-            if (TryGenerateConstructionModel(type, out constructionModel))
+            if (TryGenerateConstructionModel(type, out var constructionModel))
             {
                 _constructionModels[type] = constructionModel;
                 return true;

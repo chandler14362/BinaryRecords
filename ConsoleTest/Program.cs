@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaryRecords;
@@ -7,11 +7,19 @@ namespace ConsoleTest
 {
     class Program
     {
-        public record ListTest(List<(int, int)> AllTheInts);
+        public record ListTest(IEnumerable<(int, int)> AllTheInts);
 
-        public record TupleTest(((string, string) X, int Z) Value);
+        public record HashSetTest(HashSet<int> SomeSet);
         
-        static void Main(string[] args)
+        public record DictTest(Dictionary<int, string> Value);
+
+        public record LinkedListTest(LinkedList<int> Values);
+        
+        public record TupleTest(((string, string) X, int Z) Value);
+
+        public record KvpTest(KeyValuePair<int, int> Kvp);
+        
+        public static void Main(string[] args)
         {
             var serializer = RuntimeTypeModel.CreateSerializer();
             var listTest = new ListTest(new List<(int, int)> {(1, 2), (3, 4), (5, 6)});
@@ -22,11 +30,46 @@ namespace ConsoleTest
                 Console.WriteLine(string.Join(" ", deserialized.AllTheInts));
             });
             
+            var hashSetTest = new HashSetTest(new HashSet<int> {0, 2, 4});
+            serializer.Serialize(hashSetTest, data =>
+            {
+                Console.WriteLine($"Serialized hash set test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<HashSetTest>(data);
+                Console.WriteLine(string.Join(" ", deserialized.SomeSet));
+            });
+            
+            var dictTest = new DictTest(new Dictionary<int, string> { {0, "asssa"} });
+            serializer.Serialize(dictTest, data =>
+            {
+                Console.WriteLine($"Serialized dict test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<DictTest>(data);
+                Console.WriteLine(string.Join(" ", deserialized.Value));
+            });
+
+            var ll = new LinkedList<int>();
+            ll.AddLast(0);
+            ll.AddLast(1);
+            var linkedListTest = new LinkedListTest(ll);
+            serializer.Serialize(linkedListTest, data =>
+            {
+                Console.WriteLine($"Serialized linked list test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<LinkedListTest>(data);
+                Console.WriteLine(string.Join(" ", deserialized.Values));
+            });
+
             var tupleTest = new TupleTest((("asdas", "qwoiu"), 2));
             serializer.Serialize(tupleTest, data =>
             {
                 Console.WriteLine($"Serialized tuple test data is {data.Length} long!");
                 var deserialized = serializer.Deserialize<TupleTest>(data);
+                Console.WriteLine(deserialized);
+            });
+            
+            var kvpTest = new KvpTest(new KeyValuePair<int, int>(2, 4));
+            serializer.Serialize(kvpTest, data =>
+            {
+                Console.WriteLine($"Serialized kvp test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<KvpTest>(data);
                 Console.WriteLine(deserialized);
             });
         }
