@@ -38,6 +38,8 @@ namespace ConsoleTest
 
         public record KvpTest(KeyValuePair<int, int> Kvp);
 
+        public record ArrayTest(int[] Array);
+        
         public record RecordTest(KvpTest Nested, strangeint Something);
         
         public static void Main(string[] args)
@@ -97,6 +99,14 @@ namespace ConsoleTest
                 Console.WriteLine($"Serialized kvp test data is {data.Length} long!");
                 var deserialized = serializer.Deserialize<KvpTest>(data);
                 Console.WriteLine(deserialized);
+            });
+            
+            var arrayTest = new ArrayTest(new [] { 3, 4, 6, 7 });
+            serializer.Serialize(arrayTest, data =>
+            {
+                Console.WriteLine($"Serialized array test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<ArrayTest>(data);
+                Console.WriteLine(string.Join(" ", deserialized.Array));
             });
             
             var recordTest = new RecordTest(new KvpTest(new KeyValuePair<int, int>(2, 4)), 5);

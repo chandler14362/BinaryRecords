@@ -1,15 +1,9 @@
 using System;
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using System.Reflection.Emit;
-using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
 using BinaryRecords.Delegates;
 using BinaryRecords.Extensions;
 using BinaryRecords.Models;
@@ -313,7 +307,6 @@ namespace BinaryRecords
             });
         }
         
-
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))

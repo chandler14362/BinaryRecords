@@ -79,6 +79,91 @@ namespace BinaryRecords.Providers
 
             // Providers for collection types
             
+            // Provider for array types
+            yield return new(
+                IsInterested: type => type.BaseType == typeof(Array),
+                Validate: type 
+                    => RuntimeTypeModel.IsTypeSerializable(
+                        type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0]),
+                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) =>
+                {
+                    var genericTypes = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments();
+                    var genericType = genericTypes[0];
+
+                    var blockFrame = new StackFrame();
+            
+                    // Write the element count
+                    var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
+                    var writeElementCount = Expression.Call(
+                        stackFrame.GetParameter("buffer"),
+                        typeof(SpanBufferWriter).GetMethod("WriteUInt16"), 
+                        Expression.Convert(arrayLength, typeof(ushort)));
+
+                    // Write each element
+                    var exitLabel = Expression.Label(type);
+                    var counter = blockFrame.GetOrCreateVariable(typeof(int));
+                    var assignCounter = Expression.Assign(counter, Expression.Constant(0));
+                    var serializeLoop = Expression.Loop(
+                        Expression.IfThenElse(
+                            Expression.LessThan(counter, arrayLength), 
+                            Expression.Block(
+                                serializer.GenerateTypeSerializer(genericType, Expression.ArrayAccess(dataAccess, counter), stackFrame),
+                                Expression.PostIncrementAssign(counter)
+                            ),
+                            Expression.Break(exitLabel, Expression.Constant(null, type)))
+                    );
+            
+                    // Construct the expression block
+                    return Expression.Block(blockFrame.Variables, 
+                        writeElementCount, 
+                        assignCounter, 
+                        serializeLoop, 
+                        Expression.Label(exitLabel, Expression.Constant(null, type)));
+                },
+                GenerateDeserializeExpression: (serializer, type, stackFrame) =>
+                {
+                    var genericTypes = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments();
+                    var genericType = genericTypes[0];
+            
+                    var arrayConstructor = type.GetConstructor(new[] {typeof(int)});
+                    
+                    var deserialized = Expression.Variable(type);
+
+                    // Read the element count
+                    var elementCount = Expression.Variable(typeof(int));
+                    var readElementCount = Expression.Assign(elementCount, 
+                        Expression.Convert(Expression.Call(stackFrame.GetParameter("buffer"), 
+                            typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
+
+                    // now deserialize each element
+                    var constructed = Expression.Assign(deserialized, Expression.New(arrayConstructor, elementCount));
+
+                    var exitLabel = Expression.Label(type);
+                    var counter = Expression.Variable(typeof(int));
+                    var assignCounter = Expression.Assign(counter, Expression.Constant(0));
+                    var deserializationLoop = Expression.Loop(
+                        Expression.IfThenElse(
+                            Expression.LessThan(counter, elementCount), 
+                            Expression.Block(
+                                Expression.Assign(
+                                    Expression.ArrayAccess(deserialized, counter), 
+                                    serializer.GenerateTypeDeserializer(genericType, stackFrame)),
+                                Expression.PostIncrementAssign(counter)
+                            ),
+                            Expression.Break(exitLabel, deserialized))
+                    );
+            
+                    return Expression.Block(new[] { elementCount, counter, deserialized }, new Expression[]
+                    {
+                        readElementCount,
+                        constructed,
+                        assignCounter,
+                        deserializationLoop,
+                        Expression.Label(exitLabel, Expression.Constant(null, type))
+                    });
+                }
+            );
+            
             // Provider for IList<> and IEnumerable<>
             yield return GetEnumerableProvider(
                 isInterested: type => type.IsOrImplementsGenericType(typeof(IList<>))
