@@ -1,16 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using BinaryRecords.Delegates;
+using BinaryRecords.Models;
 using BinaryRecords.Providers;
 
 namespace BinaryRecords
 {
-    public record RecordConstructionModel(Type type, PropertyInfo[] Properties, ConstructorInfo? Constructor);
-    
     public static class RuntimeTypeModel
     {
         private static Dictionary<Type, RecordConstructionModel> _constructionModels = new();
@@ -31,7 +29,7 @@ namespace BinaryRecords
             var type = typeof(T);
             
             // Check if we have any providers already interested in the type
-            if (_generatorProviders.Any(model => model.IsInterested(type)))
+            if (_generatorProviders.Any(provider => provider.IsInterested(type)))
                 throw new Exception($"Failed to add already existing type: {nameof(T)}");
 
             var serializerDelegate = serializer;
@@ -39,18 +37,15 @@ namespace BinaryRecords
             var provider = new ExpressionGeneratorProvider(
                 IsInterested: type => type == typeof(T),
                 Validate: type => true,
-                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) =>
-                {
-                    var callable = Expression.Constant(serializerDelegate.Target);
-                    return Expression.Call(callable, serializerDelegate.Method, stackFrame.GetParameter("buffer"),
-                        dataAccess);
-                },
-                GenerateDeserializeExpression: (serializer, type, stackFrame) =>
-                {
-                    var callable = Expression.Constant(deserializerDelegate.Target);
-                    return Expression.Call(callable, deserializerDelegate.Method, stackFrame.GetParameter("buffer"));
-                }
-            );
+                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) 
+                    => Expression.Invoke(
+                        Expression.Constant(serializerDelegate), 
+                        stackFrame.GetParameter("buffer"), 
+                        dataAccess),
+                GenerateDeserializeExpression: (serializer, type, stackFrame) 
+                    => Expression.Invoke(
+                        Expression.Constant(deserializerDelegate), 
+                        stackFrame.GetParameter("buffer")));
             _generatorProviders.Add(provider);
         }
         
@@ -63,17 +58,9 @@ namespace BinaryRecords
 
         public static void LoadAssemblyRecordTypes(Assembly assembly)
         {
-            // Get every record type 
             var recordTypes = assembly.GetTypes().Where(TypeIsRecord);
             foreach (var type in recordTypes)
-            {
-                // Try generating a construction model
-                if (_constructionModels.ContainsKey(type) 
-                    || !TryGenerateConstructionModel(type, out var constructionModel))
-                    continue;
-
-                _constructionModels[type] = constructionModel;
-            }
+                TryGenerateConstructionModel(type, out _);
         }
 
         public static BinarySerializer CreateSerializer()
@@ -104,6 +91,10 @@ namespace BinaryRecords
 
         private static bool TryGenerateConstructionModel(Type type, out RecordConstructionModel model)
         {
+            // See if this is a type we already have a construction model for
+            if (_constructionModels.TryGetValue(type, out model))
+                return true;
+            
             // Don't try to generate construction models for non record types
             if (!TypeIsRecord(type))
             {
@@ -123,7 +114,6 @@ namespace BinaryRecords
                 // Check if the backing type is serializable
                 if (!IsTypeSerializable(property.PropertyType))
                 {
-                    Debug.WriteLine($"Can't serialize property {property.PropertyType} {property.Name}");
                     model = null;
                     return false;
                 }
@@ -135,6 +125,7 @@ namespace BinaryRecords
             // properties don't line up. This would happen with inheritance, but inheritance isn't encouraged
             model = new(type, serializable.ToArray(), 
                 type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray()));
+            _constructionModels[type] = model;
             return true;
         }
 
@@ -147,23 +138,10 @@ namespace BinaryRecords
 
         public static bool IsTypeSerializable(Type type)
         {
-            // See if any providers want to handle the type
-            var provider = _generatorProviders.FirstOrDefault(model => model.IsInterested(type));
-            if (provider != null)
-                return provider.Validate(type);
-
-            // Now get the underlying type and see if we can serialize it
-            if (_constructionModels.ContainsKey(type))
-                return true;
-            
-            // Try to generate a construction model for the type
-            if (TryGenerateConstructionModel(type, out var constructionModel))
-            {
-                _constructionModels[type] = constructionModel;
-                return true;
-            }
-            
-            return false;
+            // See if any providers are interested in the type or if we can make a construction model for it
+            var provider = _generatorProviders
+                .FirstOrDefault(provider => provider.IsInterested(type));
+            return provider != null ? provider.Validate(type) : TryGenerateConstructionModel(type, out _);
         }
     }
 }

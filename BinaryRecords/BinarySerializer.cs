@@ -12,6 +12,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using BinaryRecords.Delegates;
 using BinaryRecords.Extensions;
+using BinaryRecords.Models;
 using BinaryRecords.Providers;
 using Krypton.Buffers;
 
@@ -114,57 +115,22 @@ namespace BinaryRecords
         public Expression GenerateTypeSerializer(Type type, Expression dataAccess, StackFrame stackFrame)
         {
             // Check if any providers are interested in the type
-            var provider = _generatorProvider.FirstOrDefault(model => model.IsInterested(type));
+            var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
             if (provider != null)
                 return provider.GenerateSerializeExpression(this, type, dataAccess, stackFrame);
 
-            // Check if we are dealing with a registered type
+            // If we don't have a provider for it, it is probably a type we construct
+            // Check if we are dealing with a record type
             if (TryGetRecordSerializer(type, out var recordPair))
             {
-                throw new NotImplementedException();
-            }
-            // Check if we are dealing with an IList
-            else if (type.ImplementsGenericInterface(typeof(ICollection<>)) && false)
-            {
-                var genericTypes = type.GetGenericArguments();
-                var genericType = genericTypes[0];
-
-                // Write the element count and then serialize each element
-                var ass = Expression.Variable(typeof(ICollection<>).MakeGenericType(genericTypes));
-                var assassign = Expression.Assign(ass, dataAccess);
-                
-                var writeElementCount = Expression.Call(stackFrame.GetParameter("buffer"),
-                    typeof(SpanBufferWriter).GetMethod("WriteUInt16"),
-                    Expression.Convert(Expression.PropertyOrField(assassign, "Count"), typeof(ushort)));
-                
-                // now serialize each element
-                var exitLabel = Expression.Label();
-                var counter = Expression.Variable(typeof(int));
-                var assignCounter = Expression.Assign(counter, Expression.Constant(0));
-                var serializationLoop = Expression.Loop(
-                    Expression.IfThenElse(
-                        Expression.LessThan(counter, Expression.PropertyOrField(assassign, "Count")),
-                        Expression.Block(new []
-                        {
-                            GenerateTypeSerializer(genericType, Expression.MakeIndex(dataAccess, type.GetProperty("Item"), new []{ counter }), stackFrame),
-                            Expression.PostIncrementAssign(counter)
-                        }),
-                        Expression.Break(exitLabel))
-                );
-                
-                return Expression.Block(new[] { ass, counter }, new Expression[]
-                {
-                    assassign,
-                    writeElementCount,
-                    assignCounter,
-                    serializationLoop,
-                    Expression.Label(exitLabel)
-                });
-            }
-            else
-            {
-                throw new Exception($"Couldn't generate serializer for type: {type.Name}");
-            }
+                var serializerDelegate = recordPair.Serialize;
+                return Expression.Invoke(Expression.Constant(serializerDelegate),
+                    dataAccess,
+                    stackFrame.GetParameter("buffer"));
+            } 
+            
+            // We don't know what we are dealing with...
+            throw new Exception($"Couldn't generate serializer for type: {type.Name}");
         }
 
         public Expression GenerateEnumerableSerialization(Type type, Expression dataAccess, StackFrame stackFrame)
@@ -238,7 +204,7 @@ namespace BinaryRecords
             
             var blockExpression = model.Constructor != null
                 ? GenerateConstructorDeserializer(model, stackFrame)
-                : GenerateOpenDeserializer(model, stackFrame);
+                : GenerateMemberInitDeserializer(model, stackFrame);
             
             var lambda = Expression.Lambda<DeserializeRecordDelegate>(
                 blockExpression,
@@ -258,11 +224,11 @@ namespace BinaryRecords
             return Expression.Block(returnExpression, returnLabel);
         }
 
-        private BlockExpression GenerateOpenDeserializer(RecordConstructionModel model, StackFrame stackFrame)
+        private BlockExpression GenerateMemberInitDeserializer(RecordConstructionModel model, StackFrame stackFrame)
         {
             var returnTarget = Expression.Label(model.type);
             var memberInit = Expression.MemberInit(
-                Expression.New(model.type.GetConstructor(new Type[] { })),
+                Expression.New(model.type.GetConstructor(Array.Empty<Type>())),
                 model.Properties.Select(p =>
                     Expression.Bind(p, GenerateTypeDeserializer(p.PropertyType, stackFrame))));
             var returnExpression = Expression.Return(returnTarget, memberInit, model.type);
@@ -273,17 +239,22 @@ namespace BinaryRecords
         public Expression GenerateTypeDeserializer(Type type, StackFrame stackFrame)
         {
             // Check if we have a provider willing to deserialize the type
-            var provider = _generatorProvider.FirstOrDefault(model => model.IsInterested(type));
+            var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
             if (provider != null)
                 return provider.GenerateDeserializeExpression(this, type, stackFrame);
             
-            throw new Exception($"Couldn't generate serializer for type: {type.Name}");
-            
-            // Check if we are dealing with a serializable record
+            // If we don't have a provider for it, it is probably a type we construct
+            // Check if we are dealing with a record type
             if (TryGetRecordSerializer(type, out var recordPair))
             {
-                throw new NotImplementedException();
+                return Expression.Convert(
+                    Expression.Invoke(
+                        Expression.Constant(recordPair.Deserialize), 
+                        stackFrame.GetParameter("buffer")),
+                    type);
             }
+            
+            throw new Exception($"Couldn't generate deserializer for type: {type.Name}");
         }
 
         public Expression GenerateEnumerableDeserializer(Type type, StackFrame stackFrame, 

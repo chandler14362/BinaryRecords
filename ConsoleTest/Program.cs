@@ -2,9 +2,28 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaryRecords;
+using Krypton.Buffers;
 
 namespace ConsoleTest
 {
+    public struct strangeint
+    {
+        private int _value;
+
+        public strangeint(int value)
+        {
+            _value = value;
+        }
+
+        public static implicit operator strangeint(int value) => new (value);
+        public static implicit operator int(strangeint value) => value._value;
+
+        public override string ToString()
+        {
+            return _value.ToString();
+        }
+    }
+    
     class Program
     {
         public record ListTest(IEnumerable<(int, int)> AllTheInts);
@@ -18,10 +37,17 @@ namespace ConsoleTest
         public record TupleTest(((string, string) X, int Z) Value);
 
         public record KvpTest(KeyValuePair<int, int> Kvp);
+
+        public record RecordTest(KvpTest Nested, strangeint Something);
         
         public static void Main(string[] args)
         {
+            RuntimeTypeModel.Register(
+                (ref SpanBufferWriter buffer, strangeint value) => buffer.WriteInt32(value + 24),
+                (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
+            );
             var serializer = RuntimeTypeModel.CreateSerializer();
+            
             var listTest = new ListTest(new List<(int, int)> {(1, 2), (3, 4), (5, 6)});
             serializer.Serialize(listTest, data =>
             {
@@ -70,6 +96,14 @@ namespace ConsoleTest
             {
                 Console.WriteLine($"Serialized kvp test data is {data.Length} long!");
                 var deserialized = serializer.Deserialize<KvpTest>(data);
+                Console.WriteLine(deserialized);
+            });
+            
+            var recordTest = new RecordTest(new KvpTest(new KeyValuePair<int, int>(2, 4)), 5);
+            serializer.Serialize(recordTest, data =>
+            {
+                Console.WriteLine($"Serialized record test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<RecordTest>(data);
                 Console.WriteLine(deserialized);
             });
         }
