@@ -1,11 +1,11 @@
 using System.Buffers.Binary;
 using Krypton.Buffers;
 
-namespace BinaryRecords
+namespace BinaryRecords.Extensions
 {
-    public static class BinarySerializerUtil
+    public static class SpanBufferWriterExtensions
     {
-        public static void WriteUInt16Bookmark(ref SpanBufferWriter buffer,
+        public static void WriteUInt16Bookmark(ref this SpanBufferWriter buffer,
             in SpanBufferWriter.Bookmark bookmark, ushort value)
         {
             buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt16LittleEndian);

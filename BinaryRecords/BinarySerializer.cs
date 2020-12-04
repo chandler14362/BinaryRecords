@@ -1,11 +1,9 @@
 using System;
 using System.Buffers;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using BinaryRecords.Delegates;
-using BinaryRecords.Extensions;
 using BinaryRecords.Models;
 using BinaryRecords.Providers;
 using Krypton.Buffers;
@@ -88,7 +86,7 @@ namespace BinaryRecords
 
             // Cast the record from object to its exact type
             var recordInstance = Expression.Assign(
-                stackFrame.GetOrCreateVariable(type),
+                stackFrame.CreateVariable(type),
                 Expression.Convert(stackFrame.GetParameter("obj"), type)
             );
             rootExpressions.Add(recordInstance);
@@ -125,69 +123,6 @@ namespace BinaryRecords
             
             // We don't know what we are dealing with...
             throw new Exception($"Couldn't generate serializer for type: {type.Name}");
-        }
-
-        public Expression GenerateEnumerableSerialization(Type type, Expression dataAccess, StackFrame stackFrame)
-        {
-            var enumerableInterface = 
-                type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
-                    ? type 
-                    : type.GetGenericInterface(typeof(IEnumerable<>));
-            var generics = enumerableInterface.GetGenericArguments();
-            var genericType = generics[0];
-            
-            var enumerableType = typeof(IEnumerable<>)
-                .MakeGenericType(generics);
-
-            var enumeratorType = typeof(IEnumerator<>)
-                .MakeGenericType(generics);
-            
-            var blockFrame = new StackFrame();
-            var enumerable = blockFrame.GetOrCreateVariable(enumerableType);
-            var enumerator = blockFrame.GetOrCreateVariable(enumeratorType);
-            
-            var assignEnumerable = Expression.Assign(enumerable, 
-                Expression.Convert(dataAccess, enumerableType));
-            var assignEnumerator = Expression.Assign(enumerator,
-                Expression.Call(enumerable, enumerableType.GetMethod("GetEnumerator")));
-            
-            var countBookmark = blockFrame.GetOrCreateVariable(typeof(SpanBufferWriter.Bookmark));
-            var assignBookmark = Expression.Assign(countBookmark, 
-                Expression.Call(stackFrame.GetParameter("buffer"), 
-                    typeof(SpanBufferWriter).GetMethod("ReserveBookmark"), 
-                    Expression.Constant(sizeof(ushort))));
-
-            var written = blockFrame.GetOrCreateVariable(typeof(ushort));
-            
-            var loopExit = Expression.Label();
-            var writeLoop = Expression.Loop(
-                Expression.IfThenElse(
-                    Expression.Call(enumerator, typeof(IEnumerator).GetMethod("MoveNext")),
-                    Expression.Block(new []
-                    {
-                        GenerateTypeSerializer(genericType, Expression.PropertyOrField(enumerator, "Current"), stackFrame),
-                        Expression.PostIncrementAssign(written)
-                    }),
-                    Expression.Break(loopExit))
-            );
-
-            var writeBookmarkMethod = typeof(BinarySerializerUtil).GetMethod("WriteUInt16Bookmark");
-            var writeBookmark = Expression.Call(
-                writeBookmarkMethod,
-                stackFrame.GetParameter("buffer"),
-                countBookmark,
-                written
-            );
-
-            return Expression.Block(blockFrame.Variables, new Expression[]
-            {
-                assignEnumerable,
-                assignEnumerator,
-                assignBookmark,
-                writeLoop,
-                Expression.Label(loopExit),
-                writeBookmark
-            });
         }
 
         private DeserializeRecordDelegate GenerateDeserializeDelegate(Type type)
@@ -251,62 +186,6 @@ namespace BinaryRecords
             throw new Exception($"Couldn't generate deserializer for type: {type.Name}");
         }
 
-        public Expression GenerateEnumerableDeserializer(Type type, StackFrame stackFrame, 
-            Type genericBackingType, GenerateAddElementExpressionDelegate addElementExpressionDelegate)
-        {
-            var enumerableInterface = 
-                type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
-                    ? type 
-                    : type.GetGenericInterface(typeof(IEnumerable<>));
-            var genericTypes = enumerableInterface.GetGenericArguments();
-            var genericType = genericTypes[0];
-        
-            var constructingCollectionType = genericBackingType.MakeGenericType(type.GetGenericArguments());
-            
-            var collectionConstructor = constructingCollectionType.GetConstructor(new[] {typeof(int)});
-            if (collectionConstructor == null)
-                collectionConstructor = constructingCollectionType.GetConstructor(Array.Empty<Type>());
-            
-            var blockFrame = new StackFrame();
-            var deserialized = blockFrame.GetOrCreateVariable(constructingCollectionType);
-
-            // Read the element count
-            var elementCount = Expression.Variable(typeof(int));
-            var readElementCount = Expression.Assign(elementCount, 
-                Expression.Convert(Expression.Call(stackFrame.GetParameter("buffer"), 
-                    typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
-
-            // now deserialize each element
-            var constructed = Expression.Assign(deserialized, 
-                collectionConstructor.GetParameters().Length == 1 
-                    ? Expression.New(collectionConstructor, elementCount) 
-                    : Expression.New(collectionConstructor));
-
-            var exitLabel = Expression.Label(constructingCollectionType);
-            var counter = Expression.Variable(typeof(int));
-            var assignCounter = Expression.Assign(counter, Expression.Constant(0));
-            var deserializationLoop = Expression.Loop(
-                Expression.IfThenElse(
-                    Expression.LessThan(counter, elementCount),
-                    Expression.Block(new []
-                    {
-                        addElementExpressionDelegate(deserialized, genericType, 
-                            () => GenerateTypeDeserializer(genericType, stackFrame)),
-                        Expression.PostIncrementAssign(counter)
-                    }),
-                    Expression.Break(exitLabel, deserialized))
-            );
-            
-            return Expression.Block(new[] { elementCount, counter, deserialized }, new Expression[]
-            {
-                readElementCount,
-                constructed,
-                assignCounter,
-                deserializationLoop,
-                Expression.Label(exitLabel, Expression.Constant(null, constructingCollectionType))
-            });
-        }
-        
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))

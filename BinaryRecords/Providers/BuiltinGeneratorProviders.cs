@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -12,7 +13,7 @@ namespace BinaryRecords.Providers
 {
     public static class BuiltinGeneratorProviders
     {
-        private static ExpressionGeneratorProvider GetPrimitiveProvider<T>(MethodInfo serialize, MethodInfo deserialize)
+        public static ExpressionGeneratorProvider GetPrimitiveProvider<T>(MethodInfo serialize, MethodInfo deserialize)
         {
             return new(
                 IsInterested: type => type == typeof(T),
@@ -24,20 +25,131 @@ namespace BinaryRecords.Providers
             );
         }
 
-        private static ExpressionGeneratorProvider GetEnumerableProvider(Func<Type, bool> isInterested, 
+        public static ExpressionGeneratorProvider GetEnumerableProvider(Func<Type, bool> isInterested, 
             Type genericBackingType, GenerateAddElementExpressionDelegate generateAddElement)
         {
             return new(
                 IsInterested: isInterested,
                 Validate: type => type.GetGenericArguments().All(RuntimeTypeModel.IsTypeSerializable),
-                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame)
-                    => serializer.GenerateEnumerableSerialization(type, dataAccess, stackFrame),
-                GenerateDeserializeExpression: (serializer, type, stackFrame)
-                    => serializer.GenerateEnumerableDeserializer(type, stackFrame, genericBackingType, generateAddElement)
+                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) =>
+                {
+                    var enumerableInterface = 
+                        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
+                            ? type 
+                            : type.GetGenericInterface(typeof(IEnumerable<>));
+                    var generics = enumerableInterface.GetGenericArguments();
+                    var genericType = generics[0];
+                    
+                    var enumerableType = typeof(IEnumerable<>).MakeGenericType(generics);
+                    var enumeratorType = typeof(IEnumerator<>).MakeGenericType(generics);
+                    
+                    var blockFrame = new StackFrame();
+                    var enumerable = blockFrame.CreateVariable(enumerableType);
+                    var enumerator = blockFrame.CreateVariable(enumeratorType);
+                    
+                    var assignEnumerable = Expression.Assign(enumerable, 
+                        Expression.Convert(dataAccess, enumerableType));
+                    var assignEnumerator = Expression.Assign(enumerator,
+                        Expression.Call(enumerable, enumerableType.GetMethod("GetEnumerator")));
+                    
+                    var countBookmark = blockFrame.CreateVariable<SpanBufferWriter.Bookmark>();
+                    var assignBookmark = Expression.Assign(countBookmark, 
+                        Expression.Call(stackFrame.GetParameter("buffer"), 
+                            typeof(SpanBufferWriter).GetMethod("ReserveBookmark"), 
+                            Expression.Constant(sizeof(ushort))));
+
+                    var written = blockFrame.CreateVariable<ushort>();
+                    
+                    var loopExit = Expression.Label();
+                    var writeLoop = Expression.Loop(
+                        Expression.IfThenElse(
+                            Expression.Call(enumerator, typeof(IEnumerator).GetMethod("MoveNext")),
+                            Expression.Block(new []
+                            {
+                                serializer.GenerateTypeSerializer(genericType, 
+                                    Expression.PropertyOrField(enumerator, "Current"), 
+                                    stackFrame),
+                                Expression.PostIncrementAssign(written)
+                            }),
+                            Expression.Break(loopExit))
+                    );
+
+                    var writeBookmarkMethod = typeof(SpanBufferWriterExtensions).GetMethod("WriteUInt16Bookmark");
+                    var writeBookmark = Expression.Call(
+                        writeBookmarkMethod,
+                        stackFrame.GetParameter("buffer"),
+                        countBookmark,
+                        written
+                    );
+
+                    return Expression.Block(blockFrame.Variables, new Expression[]
+                    {
+                        assignEnumerable,
+                        assignEnumerator,
+                        assignBookmark,
+                        writeLoop,
+                        Expression.Label(loopExit),
+                        writeBookmark
+                    });
+                },
+                GenerateDeserializeExpression: (serializer, type, stackFrame) =>
+                {
+                    var enumerableInterface = 
+                        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
+                            ? type 
+                            : type.GetGenericInterface(typeof(IEnumerable<>));
+                    var genericTypes = enumerableInterface.GetGenericArguments();
+                    var genericType = genericTypes[0];
+                
+                    var constructingCollectionType = genericBackingType.MakeGenericType(type.GetGenericArguments());
+                    
+                    var collectionConstructor = constructingCollectionType.GetConstructor(new[] {typeof(int)});
+                    if (collectionConstructor == null)
+                        collectionConstructor = constructingCollectionType.GetConstructor(Array.Empty<Type>());
+                    
+                    var blockFrame = new StackFrame();
+                    var deserialized = blockFrame.CreateVariable(constructingCollectionType);
+
+                    // Read the element count
+                    var elementCount = blockFrame.CreateVariable<int>();
+                    var readElementCount = Expression.Assign(elementCount, 
+                        Expression.Convert(Expression.Call(stackFrame.GetParameter("buffer"), 
+                            typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
+
+                    // now deserialize each element
+                    var constructed = Expression.Assign(deserialized, 
+                        collectionConstructor.GetParameters().Length == 1 
+                            ? Expression.New(collectionConstructor, elementCount) 
+                            : Expression.New(collectionConstructor));
+
+                    var exitLabel = Expression.Label(constructingCollectionType);
+                    var counter = blockFrame.CreateVariable<int>();
+                    var assignCounter = Expression.Assign(counter, Expression.Constant(0));
+                    var deserializationLoop = Expression.Loop(
+                        Expression.IfThenElse(
+                            Expression.LessThan(counter, elementCount),
+                            Expression.Block(new []
+                            {
+                                generateAddElement(deserialized, genericType, 
+                                    () => serializer.GenerateTypeDeserializer(genericType, stackFrame)),
+                                Expression.PostIncrementAssign(counter)
+                            }),
+                            Expression.Break(exitLabel, deserialized))
+                    );
+                    
+                    return Expression.Block(blockFrame.Variables, new Expression[]
+                    {
+                        readElementCount,
+                        constructed,
+                        assignCounter,
+                        deserializationLoop,
+                        Expression.Label(exitLabel, Expression.Constant(null, constructingCollectionType))
+                    });
+                }
             );
         }
-        
-        public static IEnumerable<ExpressionGeneratorProvider> GetDefaultProviders()
+
+        public static IEnumerable<ExpressionGeneratorProvider> GetDefaultPrimitiveProviders()
         {
             // Create the providers for each primitive type
             var bufferType = typeof(SpanBufferWriter);
@@ -76,9 +188,10 @@ namespace BinaryRecords.Providers
             // string type
             yield return GetPrimitiveProvider<string>(bufferType.GetMethod("WriteUTF8String"),
                 bufferReaderType.GetMethod("ReadUTF8String"));
+        }
 
-            // Providers for collection types
-            
+        public static IEnumerable<ExpressionGeneratorProvider> GetDefaultCollectionProviders()
+        {
             // Provider for array types
             yield return new(
                 IsInterested: type => type.BaseType == typeof(Array),
@@ -101,7 +214,7 @@ namespace BinaryRecords.Providers
 
                     // Write each element
                     var exitLabel = Expression.Label(type);
-                    var counter = blockFrame.GetOrCreateVariable(typeof(int));
+                    var counter = blockFrame.CreateVariable<int>();
                     var assignCounter = Expression.Assign(counter, Expression.Constant(0));
                     var serializeLoop = Expression.Loop(
                         Expression.IfThenElse(
@@ -126,11 +239,12 @@ namespace BinaryRecords.Providers
                     var genericType = genericTypes[0];
             
                     var arrayConstructor = type.GetConstructor(new[] {typeof(int)});
-                    
-                    var deserialized = Expression.Variable(type);
+
+                    var blockFrame = new StackFrame();
+                    var deserialized = blockFrame.CreateVariable(type);
 
                     // Read the element count
-                    var elementCount = Expression.Variable(typeof(int));
+                    var elementCount = blockFrame.CreateVariable<int>();
                     var readElementCount = Expression.Assign(elementCount, 
                         Expression.Convert(Expression.Call(stackFrame.GetParameter("buffer"), 
                             typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
@@ -139,7 +253,7 @@ namespace BinaryRecords.Providers
                     var constructed = Expression.Assign(deserialized, Expression.New(arrayConstructor, elementCount));
 
                     var exitLabel = Expression.Label(type);
-                    var counter = Expression.Variable(typeof(int));
+                    var counter = blockFrame.CreateVariable<int>();
                     var assignCounter = Expression.Assign(counter, Expression.Constant(0));
                     var deserializationLoop = Expression.Loop(
                         Expression.IfThenElse(
@@ -153,7 +267,7 @@ namespace BinaryRecords.Providers
                             Expression.Break(exitLabel, deserialized))
                     );
             
-                    return Expression.Block(new[] { elementCount, counter, deserialized }, new Expression[]
+                    return Expression.Block(blockFrame.Variables, new Expression[]
                     {
                         readElementCount,
                         constructed,
@@ -206,7 +320,13 @@ namespace BinaryRecords.Providers
                         instance, 
                         deserialize())
             );
-            
+        }
+
+        public static IEnumerable<ExpressionGeneratorProvider> GetDefaultProviders()
+        {
+            foreach (var provider in GetDefaultPrimitiveProviders()
+                .Concat(GetDefaultCollectionProviders())) yield return provider;
+
             // Provider for tuples
             yield return new(
                 IsInterested: type => type.GetInterface(typeof(ITuple).FullName) != null,
