@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BinaryRecords.Tests", "Bina
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleTest", "ConsoleTest\ConsoleTest.csproj", "{B37F449E-B8ED-42F8-A6FD-6DA756F352E9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BinaryRecords.Benchmarks", "BinaryRecords.Benchmarks\BinaryRecords.Benchmarks.csproj", "{C5087EE8-B5EC-4EE1-8D1A-94292175BC01}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{B37F449E-B8ED-42F8-A6FD-6DA756F352E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B37F449E-B8ED-42F8-A6FD-6DA756F352E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B37F449E-B8ED-42F8-A6FD-6DA756F352E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C5087EE8-B5EC-4EE1-8D1A-94292175BC01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C5087EE8-B5EC-4EE1-8D1A-94292175BC01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C5087EE8-B5EC-4EE1-8D1A-94292175BC01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C5087EE8-B5EC-4EE1-8D1A-94292175BC01}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

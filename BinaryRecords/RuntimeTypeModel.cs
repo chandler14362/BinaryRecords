@@ -37,15 +37,15 @@ namespace BinaryRecords
             var provider = new ExpressionGeneratorProvider(
                 IsInterested: type => type == typeof(T),
                 Validate: type => true,
-                GenerateSerializeExpression: (serializer, type, dataAccess, stackFrame) 
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) 
                     => Expression.Invoke(
                         Expression.Constant(serializerDelegate), 
-                        stackFrame.GetParameter("buffer"), 
+                        bufferAccess, 
                         dataAccess),
-                GenerateDeserializeExpression: (serializer, type, stackFrame) 
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) 
                     => Expression.Invoke(
                         Expression.Constant(deserializerDelegate), 
-                        stackFrame.GetParameter("buffer")));
+                        bufferAccess));
             _generatorProviders.Add(provider);
         }
         

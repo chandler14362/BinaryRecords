@@ -3,28 +3,32 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
-namespace BinaryRecords
+namespace BinaryRecords.Expressions
 {
-    public class StackFrame
+    public class ExpressionBlockBuilder
     {
-        private Dictionary<string, (ParameterExpression, int)> _parameters = new();
-        
         private List<ParameterExpression> _variables = new();
         private Dictionary<string, ParameterExpression> _variableDictionary = new();
-        
-        public ParameterExpression CreateParameter(Type type, string name)
+        private List<Expression> _expressions = new();
+
+        public void Add(Expression expression)
+            => _expressions.Add(expression);
+
+        public void AddRange(IEnumerable<Expression> expressions)
+            => _expressions.AddRange(expressions);
+
+        public static ExpressionBlockBuilder operator +(ExpressionBlockBuilder builder, Expression expression)
         {
-            var param = Expression.Parameter(type, name);
-            _parameters[name] = (param, _parameters.Count);
-            return param;
+            builder.Add(expression);
+            return builder;
         }
-
-        public ParameterExpression CreateParameter<T>(string name) 
-            => CreateParameter(typeof(T), name);
-
-        public ParameterExpression GetParameter(string name)
-            => _parameters[name].Item1;
-
+        
+        public static ExpressionBlockBuilder operator +(ExpressionBlockBuilder builder, IEnumerable<Expression> expressions)
+        {
+            builder.AddRange(expressions);
+            return builder;
+        }
+        
         private ParameterExpression TrackVariable(ParameterExpression variable)
         {
             if (variable.Name != null)
@@ -57,9 +61,10 @@ namespace BinaryRecords
             => GetOrCreateVariable(typeof(T), name);
 
         public IEnumerable<ParameterExpression> Variables => _variables;
-        
-        public IEnumerable<ParameterExpression> Parameters => _parameters.Values
-            .OrderBy(k => k.Item2)
-            .Select(k => k.Item1);
+
+        public BlockExpression Build()
+            => Expression.Block(Variables, _expressions);
+
+        public static implicit operator BlockExpression(ExpressionBlockBuilder builder) => builder.Build();
     }
 }

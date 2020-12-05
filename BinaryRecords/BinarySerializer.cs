@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using BinaryRecords.Delegates;
+using BinaryRecords.Expressions;
 using BinaryRecords.Models;
 using BinaryRecords.Providers;
 using Krypton.Buffers;
@@ -76,40 +77,40 @@ namespace BinaryRecords
 
         private SerializeRecordDelegate GenerateSerializeDelegate(Type type)
         {
-            // Generate a serializer for each property
-            var stackFrame = new StackFrame();
-            var rootExpressions = new List<Expression>();
+            var blockBuilder = new ExpressionBlockBuilder();
             
             // Declare parameters
-            stackFrame.CreateParameter<object>("obj");
-            stackFrame.CreateParameter(BufferWriterType, "buffer");
+            var objParameter = Expression.Parameter(typeof(object), "obj");
+            var bufferParameter = Expression.Parameter(BufferWriterType, "buffer");
 
-            // Cast the record from object to its exact type
-            var recordInstance = Expression.Assign(
-                stackFrame.CreateVariable(type),
-                Expression.Convert(stackFrame.GetParameter("obj"), type)
+            // Cast record type
+            var recordInstance = blockBuilder.CreateVariable(type);
+            blockBuilder += Expression.Assign(
+                recordInstance,
+                Expression.Convert(objParameter, type)
             );
-            rootExpressions.Add(recordInstance);
 
             // Generate a serializer for each record property
-            var propertySerializers = _constructionModels[type].Properties
-                .Select(property => GenerateTypeSerializer(property.PropertyType, Expression.Property(recordInstance, property), stackFrame));
-            rootExpressions.AddRange(propertySerializers);
+            blockBuilder += _constructionModels[type].Properties
+                .Select(property => 
+                    GenerateTypeSerializer(property.PropertyType, 
+                        Expression.Property(recordInstance, property), 
+                        bufferParameter));
 
             // Compile and return
             var lambda = Expression.Lambda<SerializeRecordDelegate>(
-                Expression.Block(stackFrame.Variables, rootExpressions), 
-                stackFrame.Parameters
+                blockBuilder, 
+                objParameter, bufferParameter
             );
             return lambda.Compile();
         }
 
-        public Expression GenerateTypeSerializer(Type type, Expression dataAccess, StackFrame stackFrame)
+        public Expression GenerateTypeSerializer(Type type, Expression dataAccess, Expression bufferAccess)
         {
             // Check if any providers are interested in the type
             var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
             if (provider != null)
-                return provider.GenerateSerializeExpression(this, type, dataAccess, stackFrame);
+                return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
 
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
@@ -118,7 +119,7 @@ namespace BinaryRecords
                 var serializerDelegate = recordPair.Serialize;
                 return Expression.Invoke(Expression.Constant(serializerDelegate),
                     dataAccess,
-                    stackFrame.GetParameter("buffer"));
+                    bufferAccess);
             } 
             
             // We don't know what we are dealing with...
@@ -128,49 +129,48 @@ namespace BinaryRecords
         private DeserializeRecordDelegate GenerateDeserializeDelegate(Type type)
         {
             var model = _constructionModels[type];
-            var stackFrame = new StackFrame();
-            stackFrame.CreateParameter(BufferReaderType, "buffer");
-            
+            var bufferAccess = Expression.Parameter(BufferReaderType, "buffer");
+
             var blockExpression = model.Constructor != null
-                ? GenerateConstructorDeserializer(model, stackFrame)
-                : GenerateMemberInitDeserializer(model, stackFrame);
+                ? GenerateConstructorDeserializer(model, bufferAccess)
+                : GenerateMemberInitDeserializer(model, bufferAccess);
             
             var lambda = Expression.Lambda<DeserializeRecordDelegate>(
                 blockExpression,
-                stackFrame.Parameters
+                bufferAccess
             );
             return lambda.Compile();
         }
 
-        private BlockExpression GenerateConstructorDeserializer(RecordConstructionModel model, StackFrame stackFrame)
+        private BlockExpression GenerateConstructorDeserializer(RecordConstructionModel model, Expression bufferAccess)
         {
             var returnTarget = Expression.Label(model.type);
             var constructorCall = Expression.New(model.Constructor,
-                model.Properties.Select(p => GenerateTypeDeserializer(p.PropertyType, stackFrame)),
+                model.Properties.Select(p => GenerateTypeDeserializer(p.PropertyType, bufferAccess)),
                 model.Properties);
             var returnExpression = Expression.Return(returnTarget, constructorCall, model.type);
             var returnLabel = Expression.Label(returnTarget, constructorCall);
             return Expression.Block(returnExpression, returnLabel);
         }
 
-        private BlockExpression GenerateMemberInitDeserializer(RecordConstructionModel model, StackFrame stackFrame)
+        private BlockExpression GenerateMemberInitDeserializer(RecordConstructionModel model, Expression bufferAccess)
         {
             var returnTarget = Expression.Label(model.type);
             var memberInit = Expression.MemberInit(
                 Expression.New(model.type.GetConstructor(Array.Empty<Type>())),
                 model.Properties.Select(p =>
-                    Expression.Bind(p, GenerateTypeDeserializer(p.PropertyType, stackFrame))));
+                    Expression.Bind(p, GenerateTypeDeserializer(p.PropertyType, bufferAccess))));
             var returnExpression = Expression.Return(returnTarget, memberInit, model.type);
             var returnLabel = Expression.Label(returnTarget, memberInit);
             return Expression.Block(returnExpression, returnLabel);
         }
         
-        public Expression GenerateTypeDeserializer(Type type, StackFrame stackFrame)
+        public Expression GenerateTypeDeserializer(Type type, Expression bufferAccess)
         {
             // Check if we have a provider willing to deserialize the type
             var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
             if (provider != null)
-                return provider.GenerateDeserializeExpression(this, type, stackFrame);
+                return provider.GenerateDeserializeExpression(this, type, bufferAccess);
             
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
@@ -179,7 +179,7 @@ namespace BinaryRecords
                 return Expression.Convert(
                     Expression.Invoke(
                         Expression.Constant(recordPair.Deserialize), 
-                        stackFrame.GetParameter("buffer")),
+                        bufferAccess),
                     type);
             }
             
@@ -212,6 +212,20 @@ namespace BinaryRecords
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
             serializer.Serialize(obj, ref buffer);
             callback(buffer.Data);
+        }
+
+        public int Serialize<T>(T obj, Memory<byte> memory)
+        {
+            var buffer = new SpanBufferWriter(memory.Span, resize: false);
+            Serialize(obj, ref buffer);
+            return buffer.Size;
+        }
+
+        public byte[] Serialize<T>(T obj)
+        {
+            var buffer = new SpanBufferWriter(stackalloc byte[512]);
+            Serialize(obj, ref buffer);
+            return buffer.Data.ToArray();
         }
         
         public T Deserialize<T>(ReadOnlySpan<byte> buffer)
