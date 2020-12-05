@@ -189,7 +189,7 @@ namespace BinaryRecords
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {nameof(T)}");
+                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
 
             serializer.Serialize(obj, ref buffer);
         }
@@ -197,7 +197,7 @@ namespace BinaryRecords
         public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {nameof(T)}");
+                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
             serializer.Serialize(obj, ref buffer);
@@ -231,7 +231,7 @@ namespace BinaryRecords
         public T Deserialize<T>(ReadOnlySpan<byte> buffer)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to deserialize type {nameof(T)}");
+                throw new Exception($"Don't know how to deserialize type {typeof(T).Name}");
 
             var bufferReader = new SpanBufferReader(buffer);
             return (T)serializer.Deserialize(ref bufferReader);
@@ -240,7 +240,7 @@ namespace BinaryRecords
         public T Deserialize<T>(ref SpanBufferReader bufferReader)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to deserialize type {nameof(T)}");
+                throw new Exception($"Don't know how to deserialize type {typeof(T).Name}");
 
             return (T)serializer.Deserialize(ref bufferReader);
         }

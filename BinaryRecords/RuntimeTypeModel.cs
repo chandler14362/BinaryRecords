@@ -29,8 +29,9 @@ namespace BinaryRecords
             var type = typeof(T);
             
             // Check if we have any providers already interested in the type
+            // TODO: Add priorities so people can override builtin types like string
             if (_generatorProviders.Any(provider => provider.IsInterested(type)))
-                throw new Exception($"Failed to add already existing type: {nameof(T)}");
+                throw new Exception($"Type {typeof(T).Name} already has a provider interested in it.");
 
             var serializerDelegate = serializer;
             var deserializerDelegate = deserializer;
