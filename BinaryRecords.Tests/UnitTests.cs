@@ -1,13 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Linq;
-using Microsoft.CodeAnalysis;
-using BinaryRecords;
 using NUnit.Framework;
 using Krypton.Buffers;
-
-#nullable enable
 
 namespace BinaryRecords.Tests
 {
@@ -52,8 +46,8 @@ namespace BinaryRecords.Tests
         {
             // varint usage
             RuntimeTypeModel.Register(
-                (ref SpanBufferWriter buffer, varint value) => buffer.WriteVarLong(value),
-                (ref SpanBufferReader bufferReader) => (int) bufferReader.ReadVarLong()
+                (ref SpanBufferWriter buffer, varint value) => buffer.WriteInt32(value + 24),
+                (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
             );
             
             _serializer = RuntimeTypeModel.CreateSerializer();
