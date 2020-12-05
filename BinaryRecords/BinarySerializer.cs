@@ -228,21 +228,27 @@ namespace BinaryRecords
             return buffer.Data.ToArray();
         }
         
-        public T Deserialize<T>(ReadOnlySpan<byte> buffer)
+        public object Deserialize(Type type, ReadOnlySpan<byte> buffer)
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to deserialize type {typeof(T).Name}");
+            if (!_serializers.TryGetValue(type, out var serializer))
+                throw new Exception($"Don't know how to deserialize type {type.Name}");
 
             var bufferReader = new SpanBufferReader(buffer);
-            return (T)serializer.Deserialize(ref bufferReader);
+            return serializer.Deserialize(ref bufferReader);
         }
-        
-        public T Deserialize<T>(ref SpanBufferReader bufferReader)
-        {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to deserialize type {typeof(T).Name}");
 
-            return (T)serializer.Deserialize(ref bufferReader);
+        public T Deserialize<T>(ReadOnlySpan<byte> buffer)
+            => (T) Deserialize(typeof(T), buffer);
+
+        public object Deserialize(Type type, ref SpanBufferReader bufferReader)
+        {
+            if (!_serializers.TryGetValue(type, out var serializer))
+                throw new Exception($"Don't know how to deserialize type {type.Name}");
+
+            return serializer.Deserialize(ref bufferReader);
         }
+
+        public T Deserialize<T>(ref SpanBufferReader bufferReader)
+            => (T) Deserialize(typeof(T), ref bufferReader);
     }
 }
