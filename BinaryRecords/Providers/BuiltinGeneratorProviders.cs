@@ -76,7 +76,7 @@ namespace BinaryRecords.Providers
                     );
                     blockBuilder += Expression.Label(loopExit);
 
-                    var writeBookmarkMethod = typeof(SpanBufferWriterExtensions).GetMethod("WriteUInt16Bookmark");
+                    var writeBookmarkMethod = typeof(BufferExtensions).GetMethod("WriteUInt16Bookmark");
                     blockBuilder += Expression.Call(
                         writeBookmarkMethod,
                         bufferAccess,
@@ -301,6 +301,24 @@ namespace BinaryRecords.Providers
             foreach (var provider in GetDefaultPrimitiveProviders()
                 .Concat(GetDefaultCollectionProviders())) yield return provider;
 
+            // Provider for enums
+            yield return new(
+                IsInterested: type => type.BaseType == typeof(Enum),
+                Validate: type => true,
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                {
+                    var enumType = type.GetFields()[0].FieldType;
+                    return serializer.GenerateTypeSerializer(enumType, 
+                        Expression.Convert(dataAccess, enumType), 
+                        bufferAccess);
+                },
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
+                {
+                    var enumType = type.GetFields()[0].FieldType;
+                    return Expression.Convert(serializer.GenerateTypeDeserializer(enumType, bufferAccess), type);
+                }
+            );
+            
             // Provider for tuples
             yield return new(
                 IsInterested: type => type.GetInterface(typeof(ITuple).FullName) != null,
@@ -352,6 +370,18 @@ namespace BinaryRecords.Providers
                         serializer.GenerateTypeDeserializer(keyType, bufferAccess),
                         serializer.GenerateTypeDeserializer(valueType, bufferAccess));
                 }
+            );
+            
+            // DateTimeOffset provider
+            yield return new(
+                IsInterested: type => type == typeof(DateTimeOffset),
+                Validate: type => true,
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess)
+                    => Expression.Call(bufferAccess, 
+                        typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 
+                        dataAccess),
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) 
+                    => Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"))
             );
         }
     }

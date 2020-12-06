@@ -39,7 +39,14 @@ namespace ConsoleTest
 
         public record ArrayTest(int[] Array);
         
-        public record RecordTest(KvpTest Nested, strangeint Something);
+        public record RecordTest(KvpTest Nested, strangeint Something, TestEnum Test);
+
+        public enum TestEnum
+        {
+            A,
+            B,
+            C
+        }
         
         public static void Main(string[] args)
         {
@@ -47,6 +54,10 @@ namespace ConsoleTest
                 (ref SpanBufferWriter buffer, strangeint value) => buffer.WriteInt32(value + 24),
                 (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
             );
+            //RuntimeTypeModel.Register(
+            //    (ref SpanBufferWriter buffer, DateTimeOffset value) => buffer.WriteInt64(value.UtcTicks),
+            //    (ref SpanBufferReader bufferReader) => new(bufferReader.ReadInt64(), TimeSpan.Zero)
+            //);
             var serializer = RuntimeTypeModel.CreateSerializer();
             
             var listTest = new ListTest(new List<(int, int)> {(1, 2), (3, 4), (5, 6)});
@@ -108,7 +119,7 @@ namespace ConsoleTest
                 Console.WriteLine(string.Join(" ", deserialized.Array));
             });
             
-            var recordTest = new RecordTest(new KvpTest(new KeyValuePair<int, int>(2, 4)), 5);
+            var recordTest = new RecordTest(new KvpTest(new KeyValuePair<int, int>(2, 4)), 5, TestEnum.B);
             serializer.Serialize(recordTest, data =>
             {
                 Console.WriteLine($"Serialized record test data is {data.Length} long!");
