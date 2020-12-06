@@ -3,6 +3,13 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>9</LangVersion>
+    <Version>0.1.0</Version>
+    <Authors>chandler14362</Authors>
+    <Description>Library for serializing the C# 9 record types with no attributes or type registration.</Description>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <RepositoryUrl>https://github.com/chandler14362/BinaryRecords</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>serialization;contractless;high-performance;span;memory;c#9</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,5 +18,12 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Krypton.Buffers" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
   </ItemGroup>
 </Project>
