@@ -7,7 +7,7 @@
 
     <ItemGroup>
       <PackageReference Include="BenchmarkDotNet" Version="0.12.1" />
-      <PackageReference Include="Krypton.Buffers" Version="2.0.1" />
+      <PackageReference Include="Krypton.Buffers" Version="2.0.2" />
       <PackageReference Include="protobuf-net" Version="3.0.73" />
     </ItemGroup>
 

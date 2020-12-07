@@ -255,7 +255,7 @@ namespace BinaryRecords.Providers
 
                         return PrimitiveExpressionGeneratorProviders.IsBlittable(serializer.GetProviderForType(genericType)) 
                             ? GenerateFastSerializeArray(serializer, type, backingArray, bufferAccess)
-                            : GenerateSlowDeserializeArray(serializer, type, backingArray, bufferAccess);
+                            : GenerateSlowSerializeArray(serializer, type, backingArray, bufferAccess);
                     }
                     
                     // Its not a type we are optimized for so just generate the enum writer
@@ -297,6 +297,11 @@ namespace BinaryRecords.Providers
                             ? GenerateFastDeserializeArray(serializer, arrayType, backingArray, bufferAccess)
                             : GenerateSlowDeserializeArray(serializer, arrayType, backingArray, bufferAccess);
 
+                    // If our array type is the generic list, we need to set _size after deserializing
+                    if (arrayType == genericListType)
+                        blockBuilder += Expression.Assign(Expression.PropertyOrField(deserialized, "_size"),
+                            elementCount);
+                    
                     var returnLabel = Expression.Label(type);
                     blockBuilder += Expression.Break(returnLabel, deserialized);
                     blockBuilder += Expression.Label(returnLabel, Expression.Constant(null, type));

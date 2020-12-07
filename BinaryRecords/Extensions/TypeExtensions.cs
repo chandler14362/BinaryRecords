@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace BinaryRecords.Extensions
 {
@@ -10,6 +11,11 @@ namespace BinaryRecords.Extensions
         {
             return type.GetInterfaces()
                 .Any(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericType);
+        }
+
+        public static bool ImplementsInterface(this Type type, Type interfaceType)
+        {
+            return type.GetInterfaces().Contains(interfaceType);
         }
         
         public static bool IsOrImplementsGenericType(this Type type, Type genericType)
@@ -28,6 +34,16 @@ namespace BinaryRecords.Extensions
             if (type.IsGenericType && type.GetGenericTypeDefinition() == genericType) return type;
             return type.GetInterfaces()
                 .FirstOrDefault(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericType);
+        }
+        
+        public static bool IsTuple(this Type type)
+        {
+#if NETSTANDARD2_1
+            return type.IsGenericType && type.ImplementsInterface(typeof(ITuple));
+#else
+            var typeName = type.FullName;
+            return type.IsGenericType && (typeName.StartsWith("System.Tuple") || typeName.StartsWith("System.ValueTuple"));
+#endif
         }
     }
 }

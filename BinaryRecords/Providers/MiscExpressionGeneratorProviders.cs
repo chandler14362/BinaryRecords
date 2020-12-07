@@ -10,7 +10,7 @@ namespace BinaryRecords.Providers
     public class MiscExpressionGeneratorProviders
     {
         public static IReadOnlyList<ExpressionGeneratorProvider> Builtin = CreateBuiltinProviders().ToList();
-        
+
         private static IEnumerable<ExpressionGeneratorProvider> CreateBuiltinProviders()
         {
             // Provider for enums
@@ -35,7 +35,7 @@ namespace BinaryRecords.Providers
             // Provider for tuples
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type.GetInterface(typeof(ITuple).FullName) != null,
+                IsInterested: type => type.IsTuple(),
                 Validate: type => type.GetGenericArguments().All(RuntimeTypeModel.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
