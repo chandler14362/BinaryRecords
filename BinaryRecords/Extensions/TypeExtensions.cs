@@ -24,6 +24,8 @@ namespace BinaryRecords.Extensions
         
         public static Type GetGenericInterface(this Type type, Type genericType)
         {
+            // If the type is the generic interface we need to return that
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == genericType) return type;
             return type.GetInterfaces()
                 .FirstOrDefault(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericType);
         }

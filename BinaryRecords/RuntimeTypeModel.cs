@@ -20,22 +20,17 @@ namespace BinaryRecords
         static RuntimeTypeModel()
         {
             // Register the builtin generator providers
-            foreach (var generatorProviderModel in BuiltinGeneratorProviders.GetDefaultProviders())
+            foreach (var generatorProviderModel in ExpressionGeneratorProvider.Builtins)
                 Register(generatorProviderModel);
         }
         
-        public static void Register<T>(SerializeGenericDelegate<T> serializer, DeserializeGenericDelegate<T> deserializer)
+        public static void Register<T>(SerializeGenericDelegate<T> serializer, DeserializeGenericDelegate<T> deserializer,
+            ProviderPriority priority=ProviderPriority.High)
         {
-            var type = typeof(T);
-            
-            // Check if we have any providers already interested in the type
-            // TODO: Add priorities so people can override builtin types like string
-            if (_generatorProviders.Any(provider => provider.IsInterested(type)))
-                throw new Exception($"Type {typeof(T).Name} already has a provider interested in it.");
-
             var serializerDelegate = serializer;
             var deserializerDelegate = deserializer;
             var provider = new ExpressionGeneratorProvider(
+                Priority: priority,
                 IsInterested: type => type == typeof(T),
                 Validate: type => true,
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) 

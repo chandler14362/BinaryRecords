@@ -27,29 +27,32 @@ namespace BinaryRecords
         
         private Dictionary<Type, RecordSerializationPair> _serializers = new();
 
+        private Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
+        
         private Dictionary<Type, RecordConstructionModel> _constructionModels;
 
-        private List<ExpressionGeneratorProvider> _generatorProvider;
+        private List<ExpressionGeneratorProvider> _generatorProviders;
 
         public BinarySerializer(Dictionary<Type, RecordConstructionModel> constructionModels,
             List<ExpressionGeneratorProvider> generatorProviders)
         {
             _serializers = new();
             _constructionModels = new(constructionModels);
-            _generatorProvider = new(generatorProviders);
+            _generatorProviders = new(generatorProviders);
         }
         
         public BinarySerializer()
         {
             _serializers = new();
             _constructionModels = new();
-            _generatorProvider = new();
+            _generatorProviders = new();
         }
 
         public void GenerateRecordSerializers()
         {
             // Clear our existing serializers
             _serializers.Clear();
+            _typeProviderCache.Clear();
             
             foreach (var type in _constructionModels.Keys)
                 TryGetRecordSerializer(type, out _);
@@ -108,8 +111,8 @@ namespace BinaryRecords
         public Expression GenerateTypeSerializer(Type type, Expression dataAccess, Expression bufferAccess)
         {
             // Check if any providers are interested in the type
-            var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
-            if (provider != null)
+            var provider = GetProviderForType(type);
+            if (provider != null) 
                 return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
 
             // If we don't have a provider for it, it is probably a type we construct
@@ -168,7 +171,7 @@ namespace BinaryRecords
         public Expression GenerateTypeDeserializer(Type type, Expression bufferAccess)
         {
             // Check if we have a provider willing to deserialize the type
-            var provider = _generatorProvider.FirstOrDefault(provider => provider.IsInterested(type));
+            var provider = GetProviderForType(type);
             if (provider != null)
                 return provider.GenerateDeserializeExpression(this, type, bufferAccess);
             
@@ -186,6 +189,26 @@ namespace BinaryRecords
             throw new Exception($"Couldn't generate deserializer for type: {type.Name}");
         }
 
+        public ExpressionGeneratorProvider GetProviderForType(Type type)
+        {
+            if (_typeProviderCache.TryGetValue(type, out var provider)) return provider;
+
+            // We take the first 2 interested providers, this helps us check for ambiguous interest
+            var interested = _generatorProviders
+                .Where(p => p.IsInterested(type))
+                .OrderByDescending(p => p.Priority)
+                .Take(2).ToArray();
+            
+            return _typeProviderCache[type] = interested.Length switch
+            {
+                1 => interested[0],
+                2 => interested[0].Priority != interested[1].Priority 
+                    ? interested[0] 
+                    : throw new Exception($"Multiple providers have ambiguous interest in type: {type.Name}, priority: {interested[0].Priority}"),
+                _ => null
+            } ;
+        }
+        
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
         {
             if (!_serializers.TryGetValue(typeof(T), out var serializer))
