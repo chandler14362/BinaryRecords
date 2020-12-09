@@ -1,5 +1,4 @@
-﻿using System;
-using BenchmarkDotNet.Running;
+﻿using BenchmarkDotNet.Running;
 
 namespace BinaryRecords.Benchmarks
 {
@@ -7,7 +6,7 @@ namespace BinaryRecords.Benchmarks
     {
         static void Main(string[] args)
         {
-            BenchmarkRunner.Run<Benchmarks>();
+            BenchmarkRunner.Run<ArrayBenchmarks>();
         }
     }
 }

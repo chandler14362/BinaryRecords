@@ -1,0 +1,21 @@
+syntax = "proto3";
+package proto_benchmark_types;
+
+option csharp_namespace = "BinaryRecords.Benchmarks.Protobuf";
+
+message AMessage {
+  int32 A = 1;
+  string B = 3;
+}
+
+message IntArrayMessage {
+  repeated int32 Ints = 1;
+}
+
+message StringArrayMessage {
+  repeated string Strings = 1;
+}
+
+message MessageArrayMessage {
+  repeated AMessage Messages = 1;
+}

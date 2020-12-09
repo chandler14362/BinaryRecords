@@ -7,12 +7,21 @@
 
     <ItemGroup>
       <PackageReference Include="BenchmarkDotNet" Version="0.12.1" />
+      <PackageReference Include="Google.Protobuf.Tools" Version="3.14.0" />
+      <PackageReference Include="Grpc.Tools" Version="2.34.0">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
       <PackageReference Include="Krypton.Buffers" Version="2.0.2" />
-      <PackageReference Include="protobuf-net" Version="3.0.73" />
+      <PackageReference Include="Google.Protobuf" Version="3.14.0" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\BinaryRecords\BinaryRecords.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="proto_benchmark_types.proto" OutputDir="%(RelativeDir)" CompileOutputs="false" />
     </ItemGroup>
 
 </Project>
