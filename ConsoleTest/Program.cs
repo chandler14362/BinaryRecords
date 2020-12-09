@@ -41,6 +41,8 @@ namespace ConsoleTest
         
         public record RecordTest(KvpTest Nested, strangeint Something, TestEnum Test);
 
+        public record GenericRecord<T>(T Value);
+        
         public enum TestEnum
         {
             A,
@@ -50,7 +52,8 @@ namespace ConsoleTest
         
         public static void Main(string[] args)
         {
-            var builder = new BinarySerializerBuilder();
+            var builder = new BinarySerializerBuilder()
+                .AddRecord<GenericRecord<int>>();
             builder.AddProvider(
                 (ref SpanBufferWriter buffer, strangeint value) => buffer.WriteInt32(value + 24),
                 (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
@@ -125,6 +128,14 @@ namespace ConsoleTest
             {
                 Console.WriteLine($"Serialized record test data is {data.Length} long!");
                 var deserialized = serializer.Deserialize<RecordTest>(data);
+                Console.WriteLine(deserialized);
+            });
+            
+            var genericRecordTest = new GenericRecord<int>(20);
+            serializer.Serialize(genericRecordTest, data =>
+            {
+                Console.WriteLine($"Serialized generic recrod test data is {data.Length} long!");
+                var deserialized = serializer.Deserialize<GenericRecord<int>>(data);
                 Console.WriteLine(deserialized);
             });
         }

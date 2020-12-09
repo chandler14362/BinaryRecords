@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 
 namespace BinaryRecords.Expressions
@@ -11,11 +10,9 @@ namespace BinaryRecords.Expressions
         private Dictionary<string, ParameterExpression> _variableDictionary = new();
         private List<Expression> _expressions = new();
 
-        public void Add(Expression expression)
-            => _expressions.Add(expression);
+        public void Add(Expression expression) => _expressions.Add(expression);
 
-        public void AddRange(IEnumerable<Expression> expressions)
-            => _expressions.AddRange(expressions);
+        public void AddRange(IEnumerable<Expression> expressions) => _expressions.AddRange(expressions);
 
         public static ExpressionBlockBuilder operator +(ExpressionBlockBuilder builder, Expression expression)
         {
@@ -37,33 +34,26 @@ namespace BinaryRecords.Expressions
             return variable;
         }
 
-        public ParameterExpression CreateVariable(Type type)
-            => TrackVariable(Expression.Variable(type));
+        public ParameterExpression CreateVariable(Type type) => TrackVariable(Expression.Variable(type));
 
-        public ParameterExpression CreateVariable<T>()
-            => CreateVariable(typeof(T));
+        public ParameterExpression CreateVariable<T>() => CreateVariable(typeof(T));
 
-        public ParameterExpression CreateVariable(Type type, string name)
-            => TrackVariable(Expression.Variable(type, name));
+        public ParameterExpression CreateVariable(Type type, string name) => TrackVariable(Expression.Variable(type, name));
 
-        public ParameterExpression CreateVariable<T>(string name)
-            => CreateVariable(typeof(T), name);
+        public ParameterExpression CreateVariable<T>(string name) => CreateVariable(typeof(T), name);
         
-        public ParameterExpression GetVariable(string name)
-            => _variableDictionary[name];
+        public ParameterExpression GetVariable(string name) => _variableDictionary[name];
 
         public ParameterExpression GetOrCreateVariable(Type type, string name)
             => _variableDictionary.TryGetValue(name, out var variable) 
                 ? variable 
                 : CreateVariable(type, name);
         
-        public ParameterExpression GetOrCreateVariable<T>(string name)
-            => GetOrCreateVariable(typeof(T), name);
+        public ParameterExpression GetOrCreateVariable<T>(string name) => GetOrCreateVariable(typeof(T), name);
 
         public IEnumerable<ParameterExpression> Variables => _variables;
 
-        public BlockExpression Build()
-            => Expression.Block(Variables, _expressions);
+        public BlockExpression Build() => Expression.Block(Variables, _expressions);
 
         public static implicit operator BlockExpression(ExpressionBlockBuilder builder) => builder.Build();
     }

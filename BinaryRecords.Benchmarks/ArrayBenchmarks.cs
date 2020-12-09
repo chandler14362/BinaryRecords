@@ -33,7 +33,7 @@ namespace BinaryRecords.Benchmarks
         
         private const string Characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         
-        private string GenerateRandomString(Random random, int size = 12)
+        private static string GenerateRandomString(Random random, int size = 12)
         {
             return string.Create(size, random, (chars, random) =>
             {

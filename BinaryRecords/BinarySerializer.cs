@@ -39,19 +39,11 @@ namespace BinaryRecords
         {
             _constructionModels = new(constructionModels);
             _generatorProviders = new(generatorProviders);
-        }
-
-        public void GenerateRecordSerializers()
-        {
-            // Clear our existing serializers
-            _serializers.Clear();
-            _typeProviderCache.Clear();
             
             foreach (var type in _constructionModels.Keys)
                 TryGetRecordSerializer(type, out _);
         }
         
-        // TODO: Have construction model shit use providers
         private bool TryGetRecordSerializer(Type type, out RecordSerializationPair serializer)
         {
             // Ensure the type is one of our record types

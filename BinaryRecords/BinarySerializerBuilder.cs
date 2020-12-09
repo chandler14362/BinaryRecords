@@ -32,7 +32,8 @@ namespace BinaryRecords
             var generatorProviders = PrimitiveExpressionGeneratorProviders.Builtin
                 .Concat(CollectionExpressionGeneratorProviders.Builtin)
                 .Concat(MiscExpressionGeneratorProviders.Builtin);
-            foreach (var generatorProvider in generatorProviders) AddProvider(generatorProvider);
+            foreach (var generatorProvider in generatorProviders) 
+                AddProvider(generatorProvider);
         }
 
         public BinarySerializerBuilder WithConfiguration(Action<Config> doConfiguration)
@@ -40,6 +41,15 @@ namespace BinaryRecords
             doConfiguration(_config);
             return this;
         }
+
+        public BinarySerializerBuilder AddRecord(Type type)
+        {
+            if (!TryGenerateConstructionModel(type, out _))
+                throw new Exception($"{type.Name} is not a serializable record type");
+            return this;
+        }
+
+        public BinarySerializerBuilder AddRecord<T>() => AddRecord(typeof(T));
         
         public BinarySerializerBuilder AddProvider<T>(SerializeGenericDelegate<T> serializer, DeserializeGenericDelegate<T> deserializer,
             ProviderPriority priority=ProviderPriority.High)
@@ -125,19 +135,19 @@ namespace BinaryRecords
             if (_config.LoadAllLoadedAssemblies)
             {
                 var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var loadedAssembly in loadedAssemblies) _assembliesToLoad.Add(loadedAssembly);
+                foreach (var loadedAssembly in loadedAssemblies) 
+                    _assembliesToLoad.Add(loadedAssembly);
             }          
 
             // Try generating a construction model for each record type in every assembly
             foreach (var assembly in _assembliesToLoad)
             {
                 var recordTypes = assembly.GetTypes().Where(type => type.IsRecord());
-                foreach (var type in recordTypes) TryGenerateConstructionModel(type, out _);
+                foreach (var type in recordTypes) 
+                    TryGenerateConstructionModel(type, out _);
             }
-
-            var serializer = new BinarySerializer(_constructionModels, _generatorProviders);
-            serializer.GenerateRecordSerializers();
-            return serializer;
+            
+            return new BinarySerializer(_constructionModels, _generatorProviders);
         }
         
         /// <summary>
