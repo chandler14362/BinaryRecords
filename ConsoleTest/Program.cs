@@ -50,16 +50,17 @@ namespace ConsoleTest
         
         public static void Main(string[] args)
         {
-            RuntimeTypeModel.Register(
+            var builder = new BinarySerializerBuilder();
+            builder.AddProvider(
                 (ref SpanBufferWriter buffer, strangeint value) => buffer.WriteInt32(value + 24),
                 (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
             );
-            //RuntimeTypeModel.Register(
-            //    (ref SpanBufferWriter buffer, DateTimeOffset value) => buffer.WriteInt64(value.UtcTicks),
-            //    (ref SpanBufferReader bufferReader) => new(bufferReader.ReadInt64(), TimeSpan.Zero)
-            //);
-            var serializer = RuntimeTypeModel.CreateSerializer();
-            
+            builder.AddProvider(
+                (ref SpanBufferWriter buffer, DateTimeOffset value) => buffer.WriteInt64(value.UtcTicks),
+                (ref SpanBufferReader bufferReader) => new(bufferReader.ReadInt64(), TimeSpan.Zero)
+            );
+            var serializer = builder.Build();
+
             var listTest = new ListTest(new List<(int, int)> {(1, 2), (3, 4), (5, 6)});
             serializer.Serialize(listTest, data =>
             {

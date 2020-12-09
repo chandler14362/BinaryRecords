@@ -26,5 +26,9 @@
       <Pack>True</Pack>
       <PackagePath></PackagePath>
     </None>
+
+    <None Include="..\README.md">
+      <Pack>False</Pack>
+    </None>
   </ItemGroup>
 </Project>

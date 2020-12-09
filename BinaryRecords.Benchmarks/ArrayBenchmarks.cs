@@ -45,7 +45,7 @@ namespace BinaryRecords.Benchmarks
         [GlobalSetup]
         public void Setup()
         {
-            _serializer = RuntimeTypeModel.CreateSerializer();
+            _serializer = BinarySerializerBuilder.BuildDefault();
 
             var random = new Random(Size);
 

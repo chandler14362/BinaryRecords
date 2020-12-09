@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 
 namespace BinaryRecords.Extensions
@@ -44,6 +44,21 @@ namespace BinaryRecords.Extensions
             var typeName = type.FullName;
             return type.IsGenericType && (typeName.StartsWith("System.Tuple") || typeName.StartsWith("System.ValueTuple"));
 #endif
+        }
+
+        public static bool IsRecord(this Type type)
+        {
+            // Check if we have an EqualityContract
+            var equalityContract = type.GetProperty("EqualityContract", 
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            // TODO: Check more property info to make sure it fully matches the compiled version
+            return equalityContract is not null;
+        }
+        
+        public static bool HasPublicSetAndGet(this PropertyInfo propertyInfo)
+        {
+            return (propertyInfo.SetMethod?.IsPublic ?? false) && (propertyInfo.GetMethod?.IsPublic ?? false);
         }
     }
 }

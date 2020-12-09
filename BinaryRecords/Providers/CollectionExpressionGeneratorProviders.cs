@@ -223,8 +223,7 @@ namespace BinaryRecords.Providers
         {
             return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: isInterested,
-                Validate: type => type.GetGenericArguments().All(RuntimeTypeModel.IsTypeSerializable),
+                IsInterested: (type, library) => isInterested(type) && type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: GenerateSerializeEnumerable,
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) 
                     => GenerateDeserializeEnumerable(serializer, type, bufferAccess, 
@@ -237,10 +236,11 @@ namespace BinaryRecords.Providers
             // Provider for IList<>, IEnumerable<>, and Array types
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type.IsOrImplementsGenericType(typeof(IList<>)) 
-                                      || type.IsGenericType(typeof(IEnumerable<>)),
-                Validate: type => RuntimeTypeModel.IsTypeSerializable(
-                        type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0]),
+                IsInterested: (type, library) =>
+                {
+                    return (type.IsOrImplementsGenericType(typeof(IList<>)) || type.IsGenericType(typeof(IEnumerable<>))) 
+                           && library.IsTypeSerializable(type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0]);
+                },
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
                     var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];

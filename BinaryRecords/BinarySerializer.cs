@@ -5,13 +5,14 @@ using System.Linq;
 using System.Linq.Expressions;
 using BinaryRecords.Delegates;
 using BinaryRecords.Expressions;
+using BinaryRecords.Interfaces;
 using BinaryRecords.Models;
 using BinaryRecords.Providers;
 using Krypton.Buffers;
 
 namespace BinaryRecords
 {
-    public class BinarySerializer
+    public class BinarySerializer : ITypeLibrary
     {
         private delegate void SerializeRecordDelegate(Object obj, ref SpanBufferWriter buffer);
 
@@ -33,19 +34,11 @@ namespace BinaryRecords
 
         private List<ExpressionGeneratorProvider> _generatorProviders;
 
-        public BinarySerializer(Dictionary<Type, RecordConstructionModel> constructionModels,
+        internal BinarySerializer(Dictionary<Type, RecordConstructionModel> constructionModels, 
             List<ExpressionGeneratorProvider> generatorProviders)
         {
-            _serializers = new();
             _constructionModels = new(constructionModels);
             _generatorProviders = new(generatorProviders);
-        }
-        
-        public BinarySerializer()
-        {
-            _serializers = new();
-            _constructionModels = new();
-            _generatorProviders = new();
         }
 
         public void GenerateRecordSerializers()
@@ -192,21 +185,7 @@ namespace BinaryRecords
         public ExpressionGeneratorProvider GetProviderForType(Type type)
         {
             if (_typeProviderCache.TryGetValue(type, out var provider)) return provider;
-
-            // We take the first 2 interested providers, this helps us check for ambiguous interest
-            var interested = _generatorProviders
-                .Where(p => p.IsInterested(type))
-                .OrderByDescending(p => p.Priority)
-                .Take(2).ToArray();
-            
-            return _typeProviderCache[type] = interested.Length switch
-            {
-                1 => interested[0],
-                2 => interested[0].Priority != interested[1].Priority 
-                    ? interested[0] 
-                    : throw new Exception($"Multiple providers have ambiguous interest in type: {type.Name}, priority: {interested[0].Priority}"),
-                _ => null
-            } ;
+            return _typeProviderCache[type] = _generatorProviders.GetInterestedProvider(type, this);
         }
         
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
@@ -260,8 +239,7 @@ namespace BinaryRecords
             return serializer.Deserialize(ref bufferReader);
         }
 
-        public T Deserialize<T>(ReadOnlySpan<byte> buffer)
-            => (T) Deserialize(typeof(T), buffer);
+        public T Deserialize<T>(ReadOnlySpan<byte> buffer) => (T) Deserialize(typeof(T), buffer);
 
         public object Deserialize(Type type, ref SpanBufferReader bufferReader)
         {
@@ -271,7 +249,16 @@ namespace BinaryRecords
             return serializer.Deserialize(ref bufferReader);
         }
 
-        public T Deserialize<T>(ref SpanBufferReader bufferReader)
-            => (T) Deserialize(typeof(T), ref bufferReader);
+        public T Deserialize<T>(ref SpanBufferReader bufferReader) => (T) Deserialize(typeof(T), ref bufferReader);
+        
+        public bool IsTypeSerializable(Type type)
+        {
+            return GetProviderForType(type) != null || _constructionModels.ContainsKey(type);
+        }
+
+        public IList<Type> GetConstructableTypes()
+        {
+            return _constructionModels.Keys.ToList();
+        }
     }
 }

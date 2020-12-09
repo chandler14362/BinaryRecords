@@ -24,8 +24,7 @@ namespace BinaryRecords.Providers
         {
             return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type == typeof(T),
-                Validate: type => true,
+                IsInterested: (type, _) => type == typeof(T),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess)
                     => Expression.Call(bufferAccess, serialize, dataAccess),
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) 

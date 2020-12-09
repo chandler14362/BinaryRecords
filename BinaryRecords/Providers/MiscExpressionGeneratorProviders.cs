@@ -16,8 +16,7 @@ namespace BinaryRecords.Providers
             // Provider for enums
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type.BaseType == typeof(Enum),
-                Validate: type => true,
+                IsInterested: (type, _) => type.BaseType == typeof(Enum),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
                     var enumType = type.GetFields()[0].FieldType;
@@ -35,8 +34,7 @@ namespace BinaryRecords.Providers
             // Provider for tuples
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type.IsTuple(),
-                Validate: type => type.GetGenericArguments().All(RuntimeTypeModel.IsTypeSerializable),
+                IsInterested: (type, library) => type.IsTuple() && type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
                     var expressions = type.GetGenericArguments()
@@ -59,8 +57,8 @@ namespace BinaryRecords.Providers
             // Provider for KeyValuePair<>
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type.IsGenericType(typeof(KeyValuePair<,>)),
-                Validate: type => type.GetGenericArguments().All(RuntimeTypeModel.IsTypeSerializable),
+                IsInterested: (type, library) => type.IsGenericType(typeof(KeyValuePair<,>)) 
+                                                 && type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
                     var generics = type.GetGenericArguments();
@@ -90,8 +88,7 @@ namespace BinaryRecords.Providers
             // DateTimeOffset provider
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: type => type == typeof(DateTimeOffset),
-                Validate: type => true,
+                IsInterested: (type, _) => type == typeof(DateTimeOffset),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess)
                     => Expression.Call(bufferAccess, 
                         typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 

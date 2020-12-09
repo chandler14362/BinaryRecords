@@ -9,9 +9,9 @@ public record Person(string First, string Last, int Age);
 
 void Main(string[] args) 
 {
-    _serializer = RuntimeTypeModel.CreateSerializer();
+    var serializer = BinarySerializerBuilder.BuildDefault();
     
-    var person = new("Robert", "Wallace", 26);
+    var person = new Person("Robert", "Wallace", 26);
     
     // byte[] containing data
     var serialized = _serializer.Serialize(person);

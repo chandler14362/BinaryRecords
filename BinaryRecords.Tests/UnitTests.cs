@@ -44,13 +44,12 @@ namespace BinaryRecords.Tests
         [SetUp]
         public void Setup()
         {
-            // varint usage
-            RuntimeTypeModel.Register(
-                (ref SpanBufferWriter buffer, varint value) => buffer.WriteInt32(value + 24),
+            var builder = new BinarySerializerBuilder();
+            builder.AddProvider(
+                (ref SpanBufferWriter buffer, varint value) => buffer.WriteInt32(value + 24), 
                 (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
             );
-            
-            _serializer = RuntimeTypeModel.CreateSerializer();
+            _serializer = builder.Build();
         }
 
         [Test]
