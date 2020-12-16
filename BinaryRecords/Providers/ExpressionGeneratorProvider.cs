@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -37,7 +36,7 @@ namespace BinaryRecords.Providers
                     ? interested[0] 
                     : throw new Exception($"Multiple providers have ambiguous interest in type: {type.Name}, priority: {interested[0].Priority}"),
                 _ => null
-            } ;
+            };
         }
     }
 }

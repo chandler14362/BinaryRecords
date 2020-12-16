@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Extensions
@@ -10,6 +11,12 @@ namespace BinaryRecords.Extensions
             in SpanBufferWriter.Bookmark bookmark, ushort value)
         {
             buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt16LittleEndian);
+        }
+        
+        public static unsafe ReadOnlySpan<byte> ReadBlittableBytes<T>(ref this SpanBufferReader buffer) where T : unmanaged
+        {
+            var size = sizeof(T);
+            return buffer.ReadBytes(size);
         }
 
         public static void WriteDateTimeOffset(ref this SpanBufferWriter buffer, DateTimeOffset dateTimeOffset)

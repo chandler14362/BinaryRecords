@@ -98,7 +98,7 @@ namespace BinaryRecords
                 model = null;
                 return false;
             }
-            
+
             var serializable = new List<PropertyInfo>();
             
             // Go through our properties
@@ -120,9 +120,9 @@ namespace BinaryRecords
 
             // TODO: Figure out if we need to do more constructor checks, maybe if a constructor exists where our
             // properties don't line up. This would happen with inheritance, but inheritance isn't encouraged
-            model = new(type, serializable.ToArray(), 
-                type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray()));
-            _constructionModels[type] = model;
+            var constructor = type.GetConstructor(Array.Empty<Type>()) ??
+                              type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
+            _constructionModels[type] = model = new(type, serializable.ToArray(), constructor);
             return true;
         }
 
@@ -166,9 +166,10 @@ namespace BinaryRecords
             return provider != null || TryGenerateConstructionModel(type, out _);
         }
 
-        public IList<Type> GetConstructableTypes()
+        public bool IsTypeBlittable(Type type)
         {
-            return _constructionModels.Keys.ToList();
+            var provider = _generatorProviders.GetInterestedProvider(type, this);
+            return provider != null && PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
         }
     }
 }

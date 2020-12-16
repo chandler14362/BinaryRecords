@@ -25,9 +25,7 @@ namespace BinaryRecords.Providers
         }
 
         private static string GenerateNameFromTypes(IEnumerable<Type> types)
-        {
-            return $"{string.Join("", types.Select(t => t.Name))}Block";
-        }
+            => $"{string.Join("", types.Select(t => t.Name))}Block";
 
         private static Type GenerateBlittableBlockType(Type[] types, string name=null)
         {
