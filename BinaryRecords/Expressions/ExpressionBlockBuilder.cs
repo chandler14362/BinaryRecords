@@ -44,8 +44,8 @@ namespace BinaryRecords.Expressions
         
         public ParameterExpression GetVariable(string name) => _variableDictionary[name];
 
-        public ParameterExpression GetOrCreateVariable(Type type, string name)
-            => _variableDictionary.TryGetValue(name, out var variable) 
+        public ParameterExpression GetOrCreateVariable(Type type, string name) => 
+            _variableDictionary.TryGetValue(name, out var variable) 
                 ? variable 
                 : CreateVariable(type, name);
         

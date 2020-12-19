@@ -20,15 +20,13 @@ namespace BinaryRecords
 
         public static readonly Type BufferReaderType = typeof(SpanBufferReader).MakeByRefType();
         
-        private record RecordSerializationDelegates(SerializeRecordDelegate Serialize, DeserializeRecordDelegate Deserialize);
-        
-        private Dictionary<Type, RecordSerializationDelegates> _serializers = new();
+        private readonly Dictionary<Type, RecordSerializationInvocationModel> _invocationModels = new();
 
-        private Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
+        private readonly Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
         
-        private Dictionary<Type, RecordConstructionModel> _constructionModels;
+        private readonly Dictionary<Type, RecordConstructionModel> _constructionModels;
 
-        private List<ExpressionGeneratorProvider> _generatorProviders;
+        private readonly List<ExpressionGeneratorProvider> _generatorProviders;
 
         internal BinarySerializer(Dictionary<Type, RecordConstructionModel> constructionModels, 
             List<ExpressionGeneratorProvider> generatorProviders)
@@ -37,10 +35,10 @@ namespace BinaryRecords
             _generatorProviders = new(generatorProviders);
             
             foreach (var type in _constructionModels.Keys)
-                TryGetRecordSerializer(type, out _);
+                TryGetRecordInvocationModel(type, out _);
         }
         
-        private bool TryGetRecordSerializer(Type type, out RecordSerializationDelegates serializer)
+        private bool TryGetRecordInvocationModel(Type type, out RecordSerializationInvocationModel serializer)
         {
             // Ensure the type is one of our record types
             if (!_constructionModels.ContainsKey(type))
@@ -50,12 +48,12 @@ namespace BinaryRecords
             }
             
             // Check if we already handle this type
-            if (_serializers.TryGetValue(type, out serializer))
+            if (_invocationModels.TryGetValue(type, out serializer))
                 return true;
 
             // Create new serializers
-            serializer = new (GenerateSerializeDelegate(type), GenerateDeserializeDelegate(type));
-            _serializers[type] = serializer;
+            _invocationModels[type] = serializer = 
+                new (GenerateSerializeDelegate(type), GenerateDeserializeDelegate(type));
             return true;
         }
 
@@ -79,16 +77,16 @@ namespace BinaryRecords
             var (blittables, nonBlittables) = GetRecordPropertyLayout(model);
             
             blockBuilder = blittables.Aggregate(blockBuilder, 
-                (current, property) 
-                    => current + GenerateTypeSerializer(
+                (current, property) => 
+                    current + GenerateTypeSerializer(
                         property.PropertyType, 
                         Expression.Property(recordInstance, property), 
                         bufferParameter));
 
             // Now we serialize each non-blittable property
             blockBuilder = nonBlittables.Aggregate(blockBuilder, 
-                (current, property) 
-                    => current + GenerateTypeSerializer(
+                (current, property) => 
+                    current + GenerateTypeSerializer(
                         property.PropertyType, 
                         Expression.Property(recordInstance, property), 
                         bufferParameter));
@@ -110,14 +108,9 @@ namespace BinaryRecords
 
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
-            if (TryGetRecordSerializer(type, out var recordPair))
-            {
-                var serializerDelegate = recordPair.Serialize;
-                return Expression.Invoke(Expression.Constant(serializerDelegate),
-                    dataAccess,
-                    bufferAccess);
-            } 
-            
+            if (TryGetRecordInvocationModel(type, out var invocationModel))
+                return Expression.Invoke(Expression.Constant(invocationModel.Serialize), dataAccess, bufferAccess);
+
             // We don't know what we are dealing with...
             throw new Exception($"Couldn't generate serializer for type: {type.Name}");
         }
@@ -145,54 +138,25 @@ namespace BinaryRecords
         private BlockExpression GenerateStandardRecordDeserializer(RecordConstructionModel model,
             Expression bufferAccess)
         {
-            return !model.UsesMemberInit
-                ? GenerateStandardConstructorDeserializer(model, bufferAccess)
-                : GenerateStandardMemberInitDeserializer(model, bufferAccess);
-        }
+            var propertyLookup = new Dictionary<PropertyInfo, ParameterExpression>();
+            var blockBuilder = new ExpressionBlockBuilder();
+
+            var (blittable, nonBlittable) = GetRecordPropertyLayout(model);
+            foreach (var property in blittable.Concat(nonBlittable))
+            {
+                var variable = propertyLookup[property] 
+                    = blockBuilder.CreateVariable(property.PropertyType);
+                blockBuilder += Expression.Assign(variable, 
+                    GenerateTypeDeserializer(property.PropertyType, bufferAccess));
+            }
         
-        private BlockExpression GenerateStandardConstructorDeserializer(RecordConstructionModel model,
-            Expression bufferAccess)
-        {
-            var propertyLookup = new Dictionary<PropertyInfo, ParameterExpression>();
-            var blockBuilder = new ExpressionBlockBuilder();
-
-            var (blittable, nonBlittable) = GetRecordPropertyLayout(model);
-            foreach (var property in blittable.Concat(nonBlittable))
-            {
-                var variable = blockBuilder.CreateVariable(property.PropertyType);
-                blockBuilder += Expression.Assign(variable, 
-                    GenerateTypeDeserializer(property.PropertyType, bufferAccess));
-                propertyLookup[property] = variable;
-            }
-            
             var returnTarget = Expression.Label(model.type);
-            var constructorCall = Expression.New(model.Constructor,
-                model.Properties.Select(p => propertyLookup[p]),
-                model.Properties);
-            blockBuilder += Expression.Label(returnTarget, constructorCall);
-            return blockBuilder; 
-        }
-
-        private BlockExpression GenerateStandardMemberInitDeserializer(RecordConstructionModel model, 
-            Expression bufferAccess)
-        {
-            var propertyLookup = new Dictionary<PropertyInfo, ParameterExpression>();
-            var blockBuilder = new ExpressionBlockBuilder();
-
-            var (blittable, nonBlittable) = GetRecordPropertyLayout(model);
-            foreach (var property in blittable.Concat(nonBlittable))
-            {
-                var variable = blockBuilder.CreateVariable(property.PropertyType);
-                blockBuilder += Expression.Assign(variable, 
-                    GenerateTypeDeserializer(property.PropertyType, bufferAccess));
-                propertyLookup[property] = variable;
-            }
-            
-            var returnTarget = Expression.Label(model.type);
-            var memberInit = Expression.MemberInit(
-                Expression.New(model.Constructor),
-                model.Properties.Select(p => Expression.Bind(p, propertyLookup[p])));
-            blockBuilder += Expression.Return(returnTarget, memberInit, model.type);
+            Expression result = !model.UsesMemberInit
+                ? Expression.New(model.Constructor, 
+                    model.Properties.Select(p => propertyLookup[p]), model.Properties) 
+                : Expression.MemberInit(Expression.New(model.Constructor),
+                    model.Properties.Select(p => Expression.Bind(p, propertyLookup[p])));
+            blockBuilder += Expression.Label(returnTarget, result);
             return blockBuilder;
         }
 
@@ -230,27 +194,25 @@ namespace BinaryRecords
             
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
-            if (TryGetRecordSerializer(type, out var recordPair))
-            {
-                return Expression.Convert(
-                    Expression.Invoke(
-                        Expression.Constant(recordPair.Deserialize), 
-                        bufferAccess),
-                    type);
-            }
-            
+            if (TryGetRecordInvocationModel(type, out var invocationModel))
+                return Expression.Convert(Expression.Invoke(Expression.Constant(invocationModel.Deserialize), bufferAccess), type);
+
             throw new Exception($"Couldn't generate deserializer for type: {type.Name}");
         }
 
         public ExpressionGeneratorProvider GetProviderForType(Type type)
         {
             if (_typeProviderCache.TryGetValue(type, out var provider)) return provider;
-            return _typeProviderCache[type] = _generatorProviders.GetInterestedProvider(type, this);
+
+            if (!_generatorProviders.TryGetInterestedProvider(type, this, out provider))
+                throw new Exception($"No provider's interested in type: {type.FullName}");
+
+            return _typeProviderCache[type] = provider;
         }
-        
+
         public void Serialize<T>(T obj, ref SpanBufferWriter buffer) where T: class
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
+            if (!_invocationModels.TryGetValue(typeof(T), out var serializer))
                 throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
 
             serializer.Serialize(obj, ref buffer);
@@ -259,7 +221,7 @@ namespace BinaryRecords
         public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, 
             int stackSize = 512) where T: class
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
+            if (!_invocationModels.TryGetValue(typeof(T), out var serializer))
                 throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
@@ -269,7 +231,7 @@ namespace BinaryRecords
 
         public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512) where T: class
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
+            if (!_invocationModels.TryGetValue(typeof(T), out var serializer))
                 throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
@@ -293,7 +255,7 @@ namespace BinaryRecords
         
         public object Deserialize(Type type, ReadOnlySpan<byte> buffer)
         {
-            if (!_serializers.TryGetValue(type, out var serializer))
+            if (!_invocationModels.TryGetValue(type, out var serializer))
                 throw new Exception($"Don't know how to deserialize type {type.Name}");
 
             var bufferReader = new SpanBufferReader(buffer);
@@ -304,26 +266,22 @@ namespace BinaryRecords
 
         public object Deserialize(Type type, ref SpanBufferReader bufferReader)
         {
-            if (!_serializers.TryGetValue(type, out var serializer))
+            if (!_invocationModels.TryGetValue(type, out var serializer))
                 throw new Exception($"Don't know how to deserialize type {type.Name}");
 
             return serializer.Deserialize(ref bufferReader);
         }
 
-        public T Deserialize<T>(ref SpanBufferReader bufferReader) where T: class 
-            => (T) Deserialize(typeof(T), ref bufferReader);
+        public T Deserialize<T>(ref SpanBufferReader bufferReader) where T: class => 
+            (T) Deserialize(typeof(T), ref bufferReader);
         
-        public bool IsTypeSerializable(Type type)
-        {
-            return GetProviderForType(type) != null || _constructionModels.ContainsKey(type);
-        }
+        public bool IsTypeSerializable(Type type) => 
+            GetProviderForType(type) != null || _constructionModels.ContainsKey(type);
 
-        public bool IsTypeBlittable(Type type)
-        {
-            var provider = _generatorProviders.GetInterestedProvider(type, this);
-            return provider != null && PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
-        }
-        
+        public bool IsTypeBlittable(Type type) => 
+            _generatorProviders.TryGetInterestedProvider(type, this, out var provider) && 
+            PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
+
         private (PropertyInfo[] Blittables, PropertyInfo[] NonBlittables) GetRecordPropertyLayout(RecordConstructionModel model)
         {
             var blittables = model.Properties.Where(p => IsTypeBlittable(p.PropertyType)).ToArray();
@@ -331,13 +289,12 @@ namespace BinaryRecords
             return (blittables, nonBlittables);
         }
         
-        private bool RecordHasBlittableProperties(RecordConstructionModel model) 
-            => model.Properties.Any(p => IsTypeBlittable(p.PropertyType));
-
-        public IList<RecordConstructionModel> GetRecordConstructionModels()
-            => _constructionModels.Values.ToList();
+        private bool RecordHasBlittableProperties(RecordConstructionModel model) => 
+            model.Properties.Any(p => IsTypeBlittable(p.PropertyType));
         
-        public RecordConstructionModel? GetRecordConstructionModel(Type type)
-            => _constructionModels.TryGetValue(type, out var model) ? model : null;
+        public RecordConstructionModel? GetRecordConstructionModel(Type type) => 
+            _constructionModels.TryGetValue(type, out var model) ? model : null;
+        
+        public IList<RecordConstructionModel> GetRecordConstructionModels() => _constructionModels.Values.ToList();
     }
 }

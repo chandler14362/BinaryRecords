@@ -42,32 +42,25 @@ namespace BinaryRecords
             return this;
         }
 
-        public BinarySerializerBuilder AddRecord(Type type)
-        {
-            if (!TryGenerateConstructionModel(type, out _))
-                throw new Exception($"{type.Name} is not a serializable record type");
-            return this;
-        }
+        public BinarySerializerBuilder AddRecord(Type type) => 
+            TryGenerateConstructionModel(type, out _) 
+                ? this 
+                : throw new Exception($"{type.Name} is not a serializable record type");
 
         public BinarySerializerBuilder AddRecord<T>() => AddRecord(typeof(T));
         
-        public BinarySerializerBuilder AddProvider<T>(SerializeGenericDelegate<T> serializer, DeserializeGenericDelegate<T> deserializer,
+        public BinarySerializerBuilder AddProvider<T>(
+            SerializeGenericDelegate<T> serializerDelegate, 
+            DeserializeGenericDelegate<T> deserializerDelegate,
             ProviderPriority priority=ProviderPriority.High)
         {
-            var serializerDelegate = serializer;
-            var deserializerDelegate = deserializer;
             var provider = new ExpressionGeneratorProvider(
                 Priority: priority,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) 
-                    => Expression.Invoke(
-                        Expression.Constant(serializerDelegate), 
-                        bufferAccess, 
-                        dataAccess),
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) 
-                    => Expression.Invoke(
-                        Expression.Constant(deserializerDelegate), 
-                        bufferAccess));
+                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess) => 
+                    Expression.Invoke(Expression.Constant(serializerDelegate), bufferAccess, dataAccess),
+                GenerateDeserializeExpression: (_, _, bufferAccess) => 
+                    Expression.Invoke(Expression.Constant(deserializerDelegate), bufferAccess));
             _generatorProviders.Add(provider);
             return this;
         }
@@ -120,8 +113,8 @@ namespace BinaryRecords
 
             // TODO: Figure out if we need to do more constructor checks, maybe if a constructor exists where our
             // properties don't line up. This would happen with inheritance, but inheritance isn't encouraged
-            var constructor = type.GetConstructor(Array.Empty<Type>()) ??
-                              type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
+            var constructor = type.GetConstructor(Array.Empty<Type>()) 
+                              ?? type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
             _constructionModels[type] = model = new(type, serializable.ToArray(), constructor);
             return true;
         }
@@ -154,22 +147,14 @@ namespace BinaryRecords
         /// Builds a new BinarySerializer with the builtin generator providers and default config
         /// </summary>
         /// <returns></returns>
-        public static BinarySerializer BuildDefault()
-        {
-            return new BinarySerializerBuilder().Build();
-        }
+        public static BinarySerializer BuildDefault() => new BinarySerializerBuilder().Build();
 
-        public bool IsTypeSerializable(Type type)
-        {
-            // See if any providers are interested in the type or if we can make a construction model for it
-            var provider = _generatorProviders.GetInterestedProvider(type, this);
-            return provider != null || TryGenerateConstructionModel(type, out _);
-        }
+        public bool IsTypeSerializable(Type type) => 
+            _generatorProviders.TryGetInterestedProvider(type, this, out _) || 
+            TryGenerateConstructionModel(type, out _);
 
-        public bool IsTypeBlittable(Type type)
-        {
-            var provider = _generatorProviders.GetInterestedProvider(type, this);
-            return provider != null && PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
-        }
+        public bool IsTypeBlittable(Type type) => 
+            _generatorProviders.TryGetInterestedProvider(type, this, out var provider) && 
+            PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
     }
 }

@@ -24,8 +24,8 @@ namespace BinaryRecords.Providers
             _moduleBuilder = _assemblyBuilder.DefineDynamicModule("BlittableBlocks");
         }
 
-        private static string GenerateNameFromTypes(IEnumerable<Type> types)
-            => $"{string.Join("", types.Select(t => t.Name))}Block";
+        private static string GenerateNameFromTypes(IEnumerable<Type> types) => 
+            $"{string.Join("", types.Select(t => t.Name))}Block";
 
         private static Type GenerateBlittableBlockType(Type[] types, string name=null)
         {
