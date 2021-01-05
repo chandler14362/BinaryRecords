@@ -180,47 +180,59 @@ namespace BinaryRecords
             return _typeProviderCache[type] = _generatorProviders.GetInterestedProvider(type, this);
         }
         
-        public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
+        public void Serialize(Type objType, object obj, ref SpanBufferWriter buffer)
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
+            if (!_serializers.TryGetValue(objType, out var serializer))
+                throw new Exception($"Don't know how to serialize type {objType.Name}");
 
             serializer.Serialize(obj, ref buffer);
         }
 
-        public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512)
+        public void Serialize<T>(T obj, ref SpanBufferWriter buffer) => Serialize(typeof(T), obj, ref buffer);
+
+        public void Serialize<TState>(Type objType, object obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512)
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
+            if (!_serializers.TryGetValue(objType, out var serializer))
+                throw new Exception($"Don't know how to serialize type {objType.Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
             serializer.Serialize(obj, ref buffer);
             callback(buffer.Data, state);
         }
 
-        public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512)
+        public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512) =>
+            Serialize(typeof(T), obj, state, callback, stackSize);
+
+        public void Serialize(Type objType, object obj, StatelessSerializationCallback callback, int stackSize = 512)
         {
-            if (!_serializers.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
+            if (!_serializers.TryGetValue(objType, out var serializer))
+                throw new Exception($"Don't know how to serialize type {objType.Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
             serializer.Serialize(obj, ref buffer);
             callback(buffer.Data);
         }
 
-        public int Serialize<T>(T obj, Memory<byte> memory)
+        public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512) => 
+            Serialize(typeof(T), obj, callback, stackSize);
+
+        public int Serialize(Type objType, object obj, Memory<byte> memory)
         {
             var buffer = new SpanBufferWriter(memory.Span, resize: false);
             Serialize(obj, ref buffer);
             return buffer.Size;
         }
 
-        public byte[] Serialize<T>(T obj)
+        public int Serialize<T>(T obj, Memory<byte> memory) => Serialize(typeof(T), obj, memory);
+
+        public byte[] Serialize(Type objType, object obj)
         {
             var buffer = new SpanBufferWriter(stackalloc byte[512]);
             Serialize(obj, ref buffer);
             return buffer.Data.ToArray();
         }
+
+        public byte[] Serialize<T>(T obj) => Serialize(typeof(T), obj);
         
         public object Deserialize(Type type, ReadOnlySpan<byte> buffer)
         {
