@@ -58,8 +58,8 @@ namespace BinaryRecords
                 return true;
 
             // Create new serializers
-            serializer = new (GenerateSerializeDelegate(type), GenerateDeserializeDelegate(type));
-            _serializers[type] = serializer;
+            _serializers[type] = serializer = 
+                new (GenerateSerializeDelegate(type), GenerateDeserializeDelegate(type));
             return true;
         }
 
@@ -70,21 +70,46 @@ namespace BinaryRecords
             // Declare parameters
             var objParameter = Expression.Parameter(typeof(object), "obj");
             var bufferParameter = Expression.Parameter(BufferWriterType, "buffer");
+            
+            var returnTarget = Expression.Label();
+
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(objParameter, Expression.Constant(null)),
+                Expression.Block(
+                        Expression.Call(
+                            bufferParameter, 
+                            typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                            Expression.Constant((byte)0)
+                            ),
+                        Expression.Return(returnTarget)
+                        )
+                );
+            
+            blockBuilder += Expression.Call(
+                bufferParameter, 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                Expression.Constant((byte)1)
+                );
 
             // Cast record type
             var recordInstance = blockBuilder.CreateVariable(type);
             blockBuilder += Expression.Assign(
                 recordInstance,
                 Expression.Convert(objParameter, type)
-            );
+                );
 
             // Generate a serializer for each record property
             blockBuilder += _constructionModels[type].Properties
                 .Select(property => 
-                    GenerateTypeSerializer(property.PropertyType, 
+                    GenerateTypeSerializer(
+                        property.PropertyType, 
                         Expression.Property(recordInstance, property), 
-                        bufferParameter));
-
+                        bufferParameter)
+                    );
+            
+            blockBuilder += Expression.Label(returnTarget);
+            
             // Compile and return
             var lambda = Expression.Lambda<SerializeRecordDelegate>(
                 blockBuilder, 
@@ -119,12 +144,28 @@ namespace BinaryRecords
             var model = _constructionModels[type];
             var bufferAccess = Expression.Parameter(BufferReaderType, "buffer");
 
-            var blockExpression = model.Constructor != null
+            var blockBuilder = new ExpressionBlockBuilder();
+            var returnTarget = Expression.Label(typeof(object));
+            
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(
+                    Expression.Call(
+                        bufferAccess, 
+                        typeof(SpanBufferReader).GetMethod("ReadUInt8")
+                        ), 
+                    Expression.Constant((byte)0)
+                    ),
+                Expression.Return(returnTarget, Expression.Constant(null))
+            );
+
+            blockBuilder += Expression.Return(returnTarget, model.Constructor != null
                 ? GenerateConstructorDeserializer(model, bufferAccess)
-                : GenerateMemberInitDeserializer(model, bufferAccess);
+                : GenerateMemberInitDeserializer(model, bufferAccess));
+            blockBuilder += Expression.Label(returnTarget, Expression.Constant(null));
             
             var lambda = Expression.Lambda<DeserializeRecordDelegate>(
-                blockExpression,
+                blockBuilder,
                 bufferAccess
             );
             return lambda.Compile();
