@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using BinaryRecords.Extensions;
+using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -89,12 +90,34 @@ namespace BinaryRecords.Providers
             yield return new(
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(DateTimeOffset),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess)
-                    => Expression.Call(bufferAccess, 
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
+                    Expression.Call(
                         typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 
+                        bufferAccess,
                         dataAccess),
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) 
-                    => Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"))
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
+                    Expression.Call(
+                        typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"),
+                        bufferAccess)
+            );
+
+            yield return new(
+                Priority: ProviderPriority.Normal,
+                IsInterested: (type, _) => type == typeof(TimeSpan),
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                    Expression.Call(
+                        bufferAccess,
+                        typeof(SpanBufferWriter).GetMethod("WriteInt64"),
+                        Expression.Property(dataAccess, "Ticks")
+                    ),
+                GenerateDeserializeExpression: (serialize, type, bufferAccess) =>
+                    Expression.New(
+                        typeof(TimeSpan).GetConstructor(new [] {typeof(long)}),
+                        Expression.Call(
+                            bufferAccess,
+                            typeof(SpanBufferReader).GetMethod("ReadInt64")
+                        )
+                    )
             );
         }
     }

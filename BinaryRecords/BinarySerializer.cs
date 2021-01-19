@@ -122,8 +122,18 @@ namespace BinaryRecords
         {
             // Check if any providers are interested in the type
             var provider = GetProviderForType(type);
-            if (provider != null) 
-                return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
+            if (provider != null)
+            {
+                try
+                {
+                    return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Failed to generate serialize expression for type: {type.FullName}");
+                    throw;
+                }
+            }
 
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
@@ -174,8 +184,9 @@ namespace BinaryRecords
         private BlockExpression GenerateConstructorDeserializer(RecordConstructionModel model, Expression bufferAccess)
         {
             var returnTarget = Expression.Label(model.type);
-            var constructorCall = Expression.New(model.Constructor,
-                model.Properties.Select(p => GenerateTypeDeserializer(p.PropertyType, bufferAccess)),
+            var constructorCall = Expression.New(
+                model.Constructor,
+                model.Properties.Select(p => GenerateTypeDeserializer(p.PropertyType, bufferAccess)), 
                 model.Properties);
             var returnExpression = Expression.Return(returnTarget, constructorCall, model.type);
             var returnLabel = Expression.Label(returnTarget, constructorCall);
@@ -187,8 +198,9 @@ namespace BinaryRecords
             var returnTarget = Expression.Label(model.type);
             var memberInit = Expression.MemberInit(
                 Expression.New(model.type.GetConstructor(Array.Empty<Type>())),
-                model.Properties.Select(p =>
-                    Expression.Bind(p, GenerateTypeDeserializer(p.PropertyType, bufferAccess))));
+                model.Properties.Select(p => 
+                    Expression.Bind(p, GenerateTypeDeserializer(p.PropertyType, bufferAccess)))
+                );
             var returnExpression = Expression.Return(returnTarget, memberInit, model.type);
             var returnLabel = Expression.Label(returnTarget, memberInit);
             return Expression.Block(returnExpression, returnLabel);
@@ -199,8 +211,18 @@ namespace BinaryRecords
             // Check if we have a provider willing to deserialize the type
             var provider = GetProviderForType(type);
             if (provider != null)
-                return provider.GenerateDeserializeExpression(this, type, bufferAccess);
-            
+            {
+                try
+                {
+                    return provider.GenerateDeserializeExpression(this, type, bufferAccess);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Failed to generate deserialize expression for type: {type.FullName}");
+                    throw;
+                }
+            }
+
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
             if (TryGetRecordSerializer(type, out var recordPair))
@@ -296,14 +318,9 @@ namespace BinaryRecords
 
         public T Deserialize<T>(ref SpanBufferReader bufferReader) => (T) Deserialize(typeof(T), ref bufferReader);
         
-        public bool IsTypeSerializable(Type type)
-        {
-            return GetProviderForType(type) != null || _constructionModels.ContainsKey(type);
-        }
+        public bool IsTypeSerializable(Type type) => 
+            GetProviderForType(type) != null || _constructionModels.ContainsKey(type);
 
-        public IList<Type> GetConstructableTypes()
-        {
-            return _constructionModels.Keys.ToList();
-        }
+        public IList<Type> GetConstructableTypes() => _constructionModels.Keys.ToList();
     }
 }
