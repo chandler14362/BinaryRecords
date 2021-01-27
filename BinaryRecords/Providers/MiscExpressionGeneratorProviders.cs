@@ -85,7 +85,22 @@ namespace BinaryRecords.Providers
                         serializer.GenerateTypeDeserializer(valueType, bufferAccess));
                 }
             );
-            
+
+            // DateTime provider
+            yield return new(
+                Priority: ProviderPriority.Normal,
+                IsInterested: (type, _) => type == typeof(DateTime),
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                    Expression.Call(
+                        typeof(BufferExtensions).GetMethod("WriteDateTime"),
+                        bufferAccess,
+                        dataAccess),
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
+                    Expression.Call(
+                        typeof(BufferExtensions).GetMethod("ReadDateTime"),
+                        bufferAccess)
+            );
+
             // DateTimeOffset provider
             yield return new(
                 Priority: ProviderPriority.Normal,
@@ -101,6 +116,7 @@ namespace BinaryRecords.Providers
                         bufferAccess)
             );
 
+            // TimeSpan provider
             yield return new(
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(TimeSpan),
