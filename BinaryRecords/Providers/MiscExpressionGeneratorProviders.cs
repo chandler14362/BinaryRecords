@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
+using BinaryRecords.Expressions;
 using BinaryRecords.Extensions;
+using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -12,6 +15,57 @@ namespace BinaryRecords.Providers
 
         private static IEnumerable<ExpressionGeneratorProvider> CreateBuiltinProviders()
         {
+            // Provider for Nullable<T>
+            yield return new(
+                Priority: ProviderPriority.Normal,
+                IsInterested: (type, typeLibrary) => 
+                    type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && 
+                    typeLibrary.IsTypeSerializable(type.GetGenericArguments()[0]),
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                {
+                    var blockBuilder = new ExpressionBlockBuilder();
+                    var returnLabel = Expression.Label();
+                    blockBuilder += Expression.IfThen(
+                        Expression.Equal(
+                            Expression.Property(dataAccess, "HasValue"),
+                            Expression.Constant(false)
+                            ),
+                        Expression.Block(
+                            Expression.Call(
+                                bufferAccess, 
+                                typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                                Expression.Constant((byte) 0)),
+                            Expression.Return(returnLabel)
+                        )
+                    );
+                    blockBuilder += Expression.Call(
+                        bufferAccess, 
+                        typeof(SpanBufferWriter).GetMethod("WriteUInt8"),
+                        Expression.Constant((byte) 1));
+                    blockBuilder += serializer.GenerateTypeSerializer(type.GetGenericArguments()[0],
+                        Expression.Property(dataAccess, "Value"), bufferAccess);
+                    return blockBuilder += Expression.Label(returnLabel);
+                },
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
+                {
+                    var nullableConstructor = type.GetConstructor(type.GetGenericArguments());
+                    var blockBuilder = new ExpressionBlockBuilder();
+                    var returnLabel = Expression.Label(type);
+                    blockBuilder += Expression.IfThenElse(
+                        Expression.Equal(
+                            Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt8")), 
+                            Expression.Constant((byte) 0)),
+                        Expression.Return(returnLabel, Expression.Default(type)),
+                        Expression.Return(
+                            returnLabel,
+                            Expression.New(
+                                nullableConstructor, 
+                                serializer.GenerateTypeDeserializer(type.GetGenericArguments()[0], bufferAccess)
+                                )
+                        ));
+                    return blockBuilder += Expression.Label(returnLabel, Expression.Default(type));
+                });
+        
             // Provider for enums
             yield return new(
                 Priority: ProviderPriority.Normal,
@@ -82,7 +136,22 @@ namespace BinaryRecords.Providers
                         serializer.GenerateTypeDeserializer(valueType, bufferAccess));
                 }
             );
-            
+
+            // DateTime provider
+            yield return new(
+                Priority: ProviderPriority.Normal,
+                IsInterested: (type, _) => type == typeof(DateTime),
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                    Expression.Call(
+                        typeof(BufferExtensions).GetMethod("WriteDateTime"),
+                        bufferAccess,
+                        dataAccess),
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
+                    Expression.Call(
+                        typeof(BufferExtensions).GetMethod("ReadDateTime"),
+                        bufferAccess)
+            );
+
             // DateTimeOffset provider
             yield return new(
                 Priority: ProviderPriority.Normal,
@@ -92,6 +161,26 @@ namespace BinaryRecords.Providers
                         dataAccess),
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
                     Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"))
+            );
+
+            // TimeSpan provider
+            yield return new(
+                Priority: ProviderPriority.Normal,
+                IsInterested: (type, _) => type == typeof(TimeSpan),
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
+                    Expression.Call(
+                        bufferAccess,
+                        typeof(SpanBufferWriter).GetMethod("WriteInt64"),
+                        Expression.Property(dataAccess, "Ticks")
+                    ),
+                GenerateDeserializeExpression: (serialize, type, bufferAccess) =>
+                    Expression.New(
+                        typeof(TimeSpan).GetConstructor(new [] {typeof(long)}),
+                        Expression.Call(
+                            bufferAccess,
+                            typeof(SpanBufferReader).GetMethod("ReadInt64")
+                        )
+                    )
             );
         }
     }

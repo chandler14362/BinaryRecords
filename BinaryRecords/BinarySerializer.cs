@@ -28,7 +28,8 @@ namespace BinaryRecords
 
         private readonly List<ExpressionGeneratorProvider> _generatorProviders;
 
-        internal BinarySerializer(Dictionary<Type, RecordConstructionModel> constructionModels, 
+        internal BinarySerializer(
+            Dictionary<Type, RecordConstructionModel> constructionModels, 
             List<ExpressionGeneratorProvider> generatorProviders)
         {
             _constructionModels = new(constructionModels);
@@ -64,16 +65,36 @@ namespace BinaryRecords
             // Declare parameters
             var objParameter = Expression.Parameter(typeof(object), "obj");
             var bufferParameter = Expression.Parameter(BufferWriterType, "buffer");
+            
+            var returnTarget = Expression.Label();
+
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(objParameter, Expression.Constant(null)),
+                Expression.Block(
+                        Expression.Call(
+                            bufferParameter, 
+                            typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                            Expression.Constant((byte)0)
+                            ),
+                        Expression.Return(returnTarget)
+                        )
+                );
+            
+            blockBuilder += Expression.Call(
+                bufferParameter, 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                Expression.Constant((byte)1)
+                );
 
             // Cast record type
             var recordInstance = blockBuilder.CreateVariable(type);
             blockBuilder += Expression.Assign(
                 recordInstance,
                 Expression.Convert(objParameter, type)
-            );
+                );
 
             var model = _constructionModels[type];
-
             var (blittables, nonBlittables) = GetRecordPropertyLayout(model);
             
             blockBuilder = blittables.Aggregate(blockBuilder, 
@@ -90,7 +111,9 @@ namespace BinaryRecords
                         property.PropertyType, 
                         Expression.Property(recordInstance, property), 
                         bufferParameter));
-
+            
+            blockBuilder += Expression.Label(returnTarget);
+            
             // Compile and return
             var lambda = Expression.Lambda<SerializeRecordDelegate>(
                 blockBuilder, 
@@ -103,8 +126,18 @@ namespace BinaryRecords
         {
             // Check if any providers are interested in the type
             var provider = GetProviderForType(type);
-            if (provider != null) 
-                return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
+            if (provider != null)
+            {
+                try
+                {
+                    return provider.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"Failed to generate serialize expression for type: {type.FullName}");
+                    throw;
+                }
+            }
 
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
@@ -120,6 +153,21 @@ namespace BinaryRecords
             var model = _constructionModels[type];
             var bufferAccess = Expression.Parameter(BufferReaderType, "buffer");
 
+            var blockBuilder = new ExpressionBlockBuilder();
+            var returnTarget = Expression.Label(typeof(object));
+            
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(
+                    Expression.Call(
+                        bufferAccess, 
+                        typeof(SpanBufferReader).GetMethod("ReadUInt8")
+                        ), 
+                    Expression.Constant((byte)0)
+                    ),
+                Expression.Return(returnTarget, Expression.Constant(null, typeof(object)))
+            );
+            
 #if NET5_0
             var blockExpression = BitConverter.IsLittleEndian && RecordHasBlittableProperties(model)
                 ? GenerateFastRecordDeserializer(model, bufferAccess)
@@ -127,9 +175,10 @@ namespace BinaryRecords
 #else
             var blockExpression = GenerateStandardRecordDeserializer(model, bufferAccess);
 #endif
+            blockBuilder += Expression.Label(returnTarget, blockExpression);
 
             var lambda = Expression.Lambda<DeserializeRecordDelegate>(
-                blockExpression,
+                blockBuilder,
                 bufferAccess
             );
             return lambda.Compile();
@@ -190,8 +239,18 @@ namespace BinaryRecords
             // Check if we have a provider willing to deserialize the type
             var provider = GetProviderForType(type);
             if (provider != null)
-                return provider.GenerateDeserializeExpression(this, type, bufferAccess);
-            
+            {
+                try
+                {
+                    return provider.GenerateDeserializeExpression(this, type, bufferAccess);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine($"Failed to generate deserialize expression for type: {type.FullName}");
+                    throw;
+                }
+            }
+
             // If we don't have a provider for it, it is probably a type we construct
             // Check if we are dealing with a record type
             if (TryGetRecordInvocationModel(type, out var invocationModel))
@@ -200,13 +259,10 @@ namespace BinaryRecords
             throw new Exception($"Couldn't generate deserializer for type: {type.Name}");
         }
 
-        public ExpressionGeneratorProvider GetProviderForType(Type type)
+        public ExpressionGeneratorProvider? GetProviderForType(Type type)
         {
             if (_typeProviderCache.TryGetValue(type, out var provider)) return provider;
-
-            if (!_generatorProviders.TryGetInterestedProvider(type, this, out provider))
-                throw new Exception($"No provider's interested in type: {type.FullName}");
-
+            if (!_generatorProviders.TryGetInterestedProvider(type, this, out provider)) return null;
             return _typeProviderCache[type] = provider;
         }
 
@@ -218,8 +274,7 @@ namespace BinaryRecords
             serializer.Serialize(obj, ref buffer);
         }
 
-        public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, 
-            int stackSize = 512) where T: class
+        public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512)
         {
             if (!_invocationModels.TryGetValue(typeof(T), out var serializer))
                 throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
@@ -229,29 +284,36 @@ namespace BinaryRecords
             callback(buffer.Data, state);
         }
 
-        public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512) where T: class
+        public void Serialize(Type type, object obj, StatelessSerializationCallback callback, int stackSize = 512)
         {
-            if (!_invocationModels.TryGetValue(typeof(T), out var serializer))
-                throw new Exception($"Don't know how to serialize type {typeof(T).Name}");
+            if (!_invocationModels.TryGetValue(type, out var serializer))
+                throw new Exception($"Don't know how to serialize type {type.Name}");
 
             var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
             serializer.Serialize(obj, ref buffer);
             callback(buffer.Data);
         }
 
-        public int Serialize<T>(T obj, Memory<byte> memory) where T: class
+        public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512) => 
+            Serialize(typeof(T), obj, callback, stackSize);
+
+        public int Serialize(Type objType, object obj, Memory<byte> memory)
         {
             var buffer = new SpanBufferWriter(memory.Span, resize: false);
             Serialize(obj, ref buffer);
             return buffer.Size;
         }
 
-        public byte[] Serialize<T>(T obj) where T: class
+        public int Serialize<T>(T obj, Memory<byte> memory) => Serialize(typeof(T), obj, memory);
+
+        public byte[] Serialize(Type objType, object obj)
         {
             var buffer = new SpanBufferWriter(stackalloc byte[512]);
             Serialize(obj, ref buffer);
             return buffer.Data.ToArray();
         }
+
+        public byte[] Serialize<T>(T obj) => Serialize(typeof(T), obj);
         
         public object Deserialize(Type type, ReadOnlySpan<byte> buffer)
         {

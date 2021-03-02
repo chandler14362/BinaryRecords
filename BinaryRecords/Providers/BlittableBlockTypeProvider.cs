@@ -29,8 +29,8 @@ namespace BinaryRecords.Providers
 
         private static Type GenerateBlittableBlockType(Type[] types, string name=null)
         {
-            if (!types.All(t => t.IsBlittable())) throw new Exception();
-            var typeSize = types.Sum(t => t.GetBlittableSize());
+            if (!types.All(t => t.IsBlittablePrimitive())) throw new Exception();
+            var typeSize = types.Sum(t => t.GetTypeValueSize());
 
             var typeName = name ?? GenerateNameFromTypes(types);
             var typeBuilder = _moduleBuilder.DefineType(typeName,
@@ -48,7 +48,7 @@ namespace BinaryRecords.Providers
                 var fieldBuilder = typeBuilder.DefineField(fieldName, type, FieldAttributes.Public);
                 fieldBuilder.SetCustomAttribute(new CustomAttributeBuilder(fieldOffsetConstructor, 
                     new object[] {fieldOffset}));
-                fieldOffset += type.GetBlittableSize();
+                fieldOffset += type.GetTypeValueSize();
             }
 
             return typeBuilder.CreateType();

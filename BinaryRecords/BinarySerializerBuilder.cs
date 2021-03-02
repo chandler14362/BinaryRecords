@@ -15,7 +15,7 @@ namespace BinaryRecords
     {
         public class Config
         {
-            public bool LoadAllLoadedAssemblies { get; set; } = true;
+            public bool LoadAllReferencedAssemblies { get; set; } = true;
         }
 
         private Dictionary<Type, RecordConstructionModel> _constructionModels = new();
@@ -125,10 +125,17 @@ namespace BinaryRecords
         /// <returns></returns>
         public BinarySerializer Build()
         {
-            if (_config.LoadAllLoadedAssemblies)
+            if (_config.LoadAllReferencedAssemblies)
             {
-                var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var loadedAssembly in loadedAssemblies) 
+                static void LoadAssemblyReferences(Assembly assembly)
+                {
+                    foreach (var name in assembly.GetReferencedAssemblies())
+                        if (AppDomain.CurrentDomain.GetAssemblies().All(a => a.FullName != name.FullName))
+                            LoadAssemblyReferences(Assembly.Load(name));
+                }
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    LoadAssemblyReferences(assembly);
+                foreach (var loadedAssembly in AppDomain.CurrentDomain.GetAssemblies()) 
                     _assembliesToLoad.Add(loadedAssembly);
             }          
 

@@ -19,6 +19,17 @@ namespace BinaryRecords.Extensions
             return buffer.ReadBytes(size);
         }
 
+        public static void WriteDateTime(ref this SpanBufferWriter buffer, DateTime dateTime)
+        {
+            buffer.WriteInt64(dateTime.Ticks);
+            buffer.WriteUInt8((byte)dateTime.Kind);
+        }
+
+        public static DateTime ReadDateTime(ref this SpanBufferReader buffer)
+        {
+            return new(buffer.ReadInt64(), (DateTimeKind)buffer.ReadUInt8());
+        }
+
         public static void WriteDateTimeOffset(ref this SpanBufferWriter buffer, DateTimeOffset dateTimeOffset)
         {
             buffer.WriteInt64(dateTimeOffset.Ticks);

@@ -131,7 +131,7 @@ namespace BinaryRecords.Providers
                     }),
                     Expression.Break(exitLabel, deserialized))
             );
-            return blockBuilder += Expression.Label(exitLabel);
+            return blockBuilder += Expression.Label(exitLabel, deserialized);
         }
 
         public static Expression GenerateSlowSerializeArray(BinarySerializer serializer, Type type, 
@@ -295,8 +295,7 @@ namespace BinaryRecords.Providers
                             elementCount);
                     
                     var returnLabel = Expression.Label(type);
-                    blockBuilder += Expression.Break(returnLabel, deserialized);
-                    return blockBuilder += Expression.Label(returnLabel);
+                    return blockBuilder += Expression.Label(returnLabel, deserialized);
                 }
             );
             
