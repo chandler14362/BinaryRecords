@@ -25,10 +25,10 @@ namespace BinaryRecords.Providers
             return new(
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess)
-                    => Expression.Call(bufferAccess, serialize, dataAccess),
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) 
-                    => Expression.Call(bufferAccess, deserialize)
+                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
+                    Expression.Call(bufferAccess, serialize, dataAccess),
+                GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
+                    Expression.Call(bufferAccess, deserialize)
             );
         }
 

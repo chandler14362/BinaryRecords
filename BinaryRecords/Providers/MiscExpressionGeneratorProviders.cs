@@ -90,8 +90,7 @@ namespace BinaryRecords.Providers
                 IsInterested: (type, library) => type.IsTuple() && type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
-                    var expressions = type.GetGenericArguments()
-                        .Select((genericType, i) =>
+                    var expressions = type.GetGenericArguments().Select((genericType, i) =>
                         {
                             var access = Expression.PropertyOrField(dataAccess, $"Item{i + 1}");
                             return serializer.GenerateTypeSerializer(genericType, access, bufferAccess);
@@ -110,8 +109,8 @@ namespace BinaryRecords.Providers
             // Provider for KeyValuePair<>
             yield return new(
                 Priority: ProviderPriority.Normal,
-                IsInterested: (type, library) => type.IsGenericType(typeof(KeyValuePair<,>)) 
-                                                 && type.GetGenericArguments().All(library.IsTypeSerializable),
+                IsInterested: (type, library) => type.IsGenericType(typeof(KeyValuePair<,>)) && 
+                                                 type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                 {
                     var generics = type.GetGenericArguments();
@@ -158,14 +157,10 @@ namespace BinaryRecords.Providers
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(DateTimeOffset),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
-                    Expression.Call(
-                        typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 
-                        bufferAccess,
+                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 
                         dataAccess),
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
-                    Expression.Call(
-                        typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"),
-                        bufferAccess)
+                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"))
             );
 
             // TimeSpan provider

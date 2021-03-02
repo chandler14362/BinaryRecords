@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace BinaryRecords.Interfaces
 {
@@ -7,6 +6,6 @@ namespace BinaryRecords.Interfaces
     {
         bool IsTypeSerializable(Type type);
 
-        IList<Type> GetConstructableTypes();
+        bool IsTypeBlittable(Type type);
     }
 }
