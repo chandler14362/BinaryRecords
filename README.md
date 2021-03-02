@@ -22,9 +22,9 @@ void Main(string[] args)
 More examples [here](https://github.com/chandler14362/BinaryRecords/blob/main/ConsoleTest/Program.cs)
 
 Dev todo:
-Make an ExpressionGeneratorProvider for records, move the logic out of TypeSerializer
-Support ValueTypes in the TypeSerializer in a machine ambiguous way using blittable block technique
-Consider enums blittable based on their backing type
-Add warmup calls for type serializers (maybe an api for warming up an entire assembly too)
-Support record inheritance
-Support more than just records (?)
+ - Make an ExpressionGeneratorProvider for records, move the logic out of TypeSerializer
+ - Support ValueTypes in the TypeSerializer in a machine ambiguous way using blittable block technique
+ - Consider enums blittable based on their backing type
+ - Add warmup calls for type serializers (maybe an api for warming up an entire assembly too)
+ - Support record inheritance
+ - Support more than just records (?)
