@@ -1,12 +1,13 @@
 using System;
+using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
-using BinaryRecords.Interfaces;
 
 namespace BinaryRecords.Providers
 {
     public record ExpressionGeneratorProvider(
+        string Name,
         ProviderPriority Priority,
-        Func<Type, ITypeLibrary, bool> IsInterested,
+        Func<Type, ITypingLibrary, bool> IsInterested,
         GenerateSerializeExpressionDelegate GenerateSerializeExpression,
         GenerateDeserializeExpressionDelegate GenerateDeserializeExpression);
 }

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using BinaryRecords.Interfaces;
+using BinaryRecords.Abstractions;
 using BinaryRecords.Providers;
 
 namespace BinaryRecords.Extensions
@@ -11,7 +11,7 @@ namespace BinaryRecords.Extensions
     public static class ExpressionGeneratorProviderExtensions
     {
         public static ExpressionGeneratorProvider? GetInterestedProvider(
-            this IEnumerable<ExpressionGeneratorProvider> providers, Type type, ITypeLibrary library)
+            this IEnumerable<ExpressionGeneratorProvider> providers, Type type, ITypingLibrary library)
         {
             // We take the first 2 interested providers, this helps us check for ambiguous interest
             var interested = providers
@@ -30,7 +30,7 @@ namespace BinaryRecords.Extensions
         }
 
         public static bool TryGetInterestedProvider(
-            this IEnumerable<ExpressionGeneratorProvider> providers, Type type, ITypeLibrary library,
+            this IEnumerable<ExpressionGeneratorProvider> providers, Type type, ITypingLibrary library,
             [MaybeNullWhen(false)] out ExpressionGeneratorProvider provider) => 
             (provider = GetInterestedProvider(providers, type, library)) != null;
     }

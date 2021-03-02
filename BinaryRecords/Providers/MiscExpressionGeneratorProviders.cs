@@ -17,6 +17,7 @@ namespace BinaryRecords.Providers
         {
             // Provider for Nullable<T>
             yield return new(
+                Name: "NullableProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, typeLibrary) => 
                     type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && 
@@ -68,6 +69,7 @@ namespace BinaryRecords.Providers
         
             // Provider for enums
             yield return new(
+                Name: "EnumProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type.BaseType == typeof(Enum),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
@@ -86,6 +88,7 @@ namespace BinaryRecords.Providers
             
             // Provider for tuples
             yield return new(
+                Name: "TupleProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, library) => type.IsTuple() && type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
@@ -108,6 +111,7 @@ namespace BinaryRecords.Providers
             
             // Provider for KeyValuePair<>
             yield return new(
+                Name: "KeyValuePairProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, library) => type.IsGenericType(typeof(KeyValuePair<,>)) && 
                                                  type.GetGenericArguments().All(library.IsTypeSerializable),
@@ -139,6 +143,7 @@ namespace BinaryRecords.Providers
 
             // DateTime provider
             yield return new(
+                Name: "DateTimeProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(DateTime),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
@@ -154,6 +159,7 @@ namespace BinaryRecords.Providers
 
             // DateTimeOffset provider
             yield return new(
+                Name: "DateTimeOffsetProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(DateTimeOffset),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
@@ -165,6 +171,7 @@ namespace BinaryRecords.Providers
 
             // TimeSpan provider
             yield return new(
+                Name: "TimeSpanProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(TimeSpan),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>

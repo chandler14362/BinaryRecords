@@ -39,17 +39,13 @@ namespace BinaryRecords.Tests
 
     public class Tests
     {
-        private BinarySerializer _serializer;
-        
         [SetUp]
         public void Setup()
         {
-            var builder = new BinarySerializerBuilder();
-            builder.AddProvider(
+            BinarySerializer.AddGeneratorProvider(
                 (ref SpanBufferWriter buffer, varint value) => buffer.WriteInt32(value + 24), 
                 (ref SpanBufferReader bufferReader) => bufferReader.ReadInt32() - 24
             );
-            _serializer = builder.Build();
         }
 
         [Test]
@@ -57,11 +53,11 @@ namespace BinaryRecords.Tests
         {
             var employee = new Employee("Joe", "ashdhkjasdkjh", 25);
             var buffer = new SpanBufferWriter(stackalloc byte[64]);
-            _serializer.Serialize(employee, ref buffer);
-            Assert.AreEqual(employee, _serializer.Deserialize<Employee>(buffer.Data));
+            BinarySerializer.Serialize(employee, ref buffer);
+            Assert.AreEqual(employee, BinarySerializer.Deserialize<Employee>(buffer.Data));
             
             // Example of allocation free serialization without needed SpanBufferWriter, optional state you can pass too
-            _serializer.Serialize(employee, (data) =>
+            BinarySerializer.Serialize(employee, (data) =>
             {
                 Console.WriteLine($"Serialized data is {data.Length} long!");
             });
@@ -74,12 +70,12 @@ namespace BinaryRecords.Tests
                 Puke = "WTF"
             };
             buffer = new SpanBufferWriter(stackalloc byte[64]);
-            _serializer.Serialize(argh, ref buffer);
-            Assert.AreEqual(argh, _serializer.Deserialize<Argh>(buffer.Data));
+            BinarySerializer.Serialize(argh, ref buffer);
+            Assert.AreEqual(argh, BinarySerializer.Deserialize<Argh>(buffer.Data));
             Console.WriteLine(argh);
 
             var listTest = new ListTest(new List<int> {5, 6, 7});
-            _serializer.Serialize(listTest, data =>
+            BinarySerializer.Serialize(listTest, data =>
             {
                 Console.WriteLine($"Serialized list test data is {data.Length} long!");
             });

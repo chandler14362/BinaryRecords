@@ -9,16 +9,22 @@ public record Person(string First, string Last, int Age);
 
 void Main(string[] args) 
 {
-    var serializer = BinarySerializerBuilder.BuildDefault();
-    
     var person = new Person("Robert", "Wallace", 26);
     
     // byte[] containing data
-    var serialized = _serializer.Serialize(person);
+    var serialized = BinarySerializer.Serialize(person);
     
     // deserialize
-    var deserialized = _serializer.Deserialize<Person>(serialized);
+    var deserialized = BinarySerializer.Deserialize<Person>(serialized);
 }
 ```
 
 More examples [here](https://github.com/chandler14362/BinaryRecords/blob/main/ConsoleTest/Program.cs)
+
+Dev todo:
+Make an ExpressionGeneratorProvider for records, move the logic out of TypeSerializer
+Support ValueTypes in the TypeSerializer in a machine ambiguous way using blittable block technique
+Consider enums blittable based on their backing type
+Add warmup calls for type serializers (maybe an api for warming up an entire assembly too)
+Support record inheritance
+Support more than just records (?)

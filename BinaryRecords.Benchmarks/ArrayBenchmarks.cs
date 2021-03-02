@@ -29,8 +29,6 @@ namespace BinaryRecords.Benchmarks
         private (ProtoTypes::StringArrayMessage Value, byte[] Buffer) _protoStringArray;
         private (ProtoTypes::MessageArrayMessage Value, byte[] Buffer) _protoMessageArray;
 
-        private BinarySerializer _serializer;
-        
         private const string Characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         
         private static string GenerateRandomString(Random random, int size = 12)
@@ -45,8 +43,6 @@ namespace BinaryRecords.Benchmarks
         [GlobalSetup]
         public void Setup()
         {
-            _serializer = BinarySerializerBuilder.BuildDefault();
-
             var random = new Random(Size);
 
             var strings = Enumerable.Range(0, Size)
@@ -58,11 +54,11 @@ namespace BinaryRecords.Benchmarks
                 .Select(i => new ARecord(ints[i], strings[i])).ToArray();
 
             var recordIntArray = new IntArrayRecord(ints);
-            _recordIntArray = (recordIntArray, _serializer.Serialize(recordIntArray));
+            _recordIntArray = (recordIntArray, BinarySerializer.Serialize(recordIntArray));
             var recordStringArray = new StringArrayRecord(strings);
-            _recordStringArray = (recordStringArray, _serializer.Serialize(recordStringArray));
+            _recordStringArray = (recordStringArray, BinarySerializer.Serialize(recordStringArray));
             var recordArrayRecord = new RecordArrayRecord(records);
-            _recordRecordArray = (recordArrayRecord, _serializer.Serialize(recordArrayRecord));
+            _recordRecordArray = (recordArrayRecord, BinarySerializer.Serialize(recordArrayRecord));
             
             var messages = Enumerable.Range(0, Size)
                 .Select(i => new ProtoTypes.AMessage { A = ints[i], B = strings[i] }).ToArray();
@@ -83,7 +79,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void SerializeIntArray()
         {
-            var x = _serializer.Serialize(_recordIntArray.Value, _recordIntArray.Buffer);
+            var x = BinarySerializer.Serialize(_recordIntArray.Value, _recordIntArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
         
@@ -97,7 +93,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void DeserializeIntArray()
         {
-            var x = _serializer.Deserialize<IntArrayRecord>(_recordIntArray.Buffer);
+            var x = BinarySerializer.Deserialize<IntArrayRecord>(_recordIntArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
         
@@ -115,7 +111,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void SerializeStringArray()
         {
-            var x = _serializer.Serialize(_recordStringArray.Value, _recordStringArray.Buffer);
+            var x = BinarySerializer.Serialize(_recordStringArray.Value, _recordStringArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
 
@@ -129,7 +125,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void DeserializeStringArray()
         {
-            var x = _serializer.Deserialize<StringArrayRecord>(_recordStringArray.Buffer);
+            var x = BinarySerializer.Deserialize<StringArrayRecord>(_recordStringArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
         
@@ -147,7 +143,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void SerializeRecordArray()
         {
-            var x = _serializer.Serialize(_recordRecordArray.Value, _recordRecordArray.Buffer);
+            var x = BinarySerializer.Serialize(_recordRecordArray.Value, _recordRecordArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
         
@@ -161,7 +157,7 @@ namespace BinaryRecords.Benchmarks
         [Benchmark]
         public void DeserializeRecordArray()
         {
-            var x = _serializer.Deserialize<RecordArrayRecord>(_recordRecordArray.Buffer);
+            var x = BinarySerializer.Deserialize<RecordArrayRecord>(_recordRecordArray.Buffer);
             DeadCodeEliminationHelper.KeepAliveWithoutBoxing(x);
         }
         

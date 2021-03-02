@@ -23,6 +23,7 @@ namespace BinaryRecords.Providers
         private static ExpressionGeneratorProvider CreatePrimitiveProvider<T>(MethodInfo serialize, MethodInfo deserialize)
         {
             return new(
+                Name: $"{typeof(T)}PrimitiveProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(T),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
