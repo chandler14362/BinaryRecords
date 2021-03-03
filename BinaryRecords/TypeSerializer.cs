@@ -299,8 +299,18 @@ namespace BinaryRecords
 
         public int Serialize(Type objType, object obj, Memory<byte> memory)
         {
+            if (!TryGetRecordInvocationModel(objType, out var serializer))
+                throw new Exception($"Don't know how to serialize type {objType.Name}");
+
             var buffer = new SpanBufferWriter(memory.Span, resize: false);
-            Serialize(obj, ref buffer);
+            try
+            {
+                serializer.Serialize(obj, ref buffer);
+            }
+            catch(OutOfSpaceException)
+            {
+                return -1;
+            }
             return buffer.Size;
         }
 
@@ -308,8 +318,11 @@ namespace BinaryRecords
 
         public byte[] Serialize(Type objType, object obj)
         {
+            if (!TryGetRecordInvocationModel(objType, out var serializer))
+                throw new Exception($"Don't know how to serialize type {objType.Name}");
+
             var buffer = new SpanBufferWriter(stackalloc byte[512]);
-            Serialize(obj, ref buffer);
+            serializer.Serialize(obj, ref buffer);
             return buffer.Data.ToArray();
         }
 
