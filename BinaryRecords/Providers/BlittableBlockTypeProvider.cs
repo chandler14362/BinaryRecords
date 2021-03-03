@@ -27,7 +27,7 @@ namespace BinaryRecords.Providers
         private static string GenerateNameFromTypes(IEnumerable<Type> types) => 
             $"{string.Join("", types.Select(t => t.Name))}Block";
 
-        private static Type GenerateBlittableBlockType(Type[] types, string name=null)
+        private static Type GenerateBlittableBlockType(Type[] types, string? name=null)
         {
             if (!types.All(t => t.IsBlittablePrimitive())) throw new Exception();
             var typeSize = types.Sum(t => t.GetTypeValueSize());

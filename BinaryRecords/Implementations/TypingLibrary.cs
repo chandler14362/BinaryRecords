@@ -57,7 +57,7 @@ namespace BinaryRecords.Implementations
 
         public bool IsTypeBlittable(Type type) => 
             _expressionGeneratorProviders.TryGetInterestedProvider(type, this, out var provider) && 
-            PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
+            provider is BlittableExpressionGeneratorProvider;
         
         private bool TryGenerateConstructionModel(Type type, out RecordConstructionModel? model)
         {

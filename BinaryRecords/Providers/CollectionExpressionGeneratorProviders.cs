@@ -248,7 +248,7 @@ namespace BinaryRecords.Providers
                             ? Expression.PropertyOrField(dataAccess, "_items")
                             : dataAccess;
 
-                        return serializer.ShouldHandleBlittable(genericType)
+                        return serializer.IsTypeBlittable(genericType)
                             ? GenerateFastSerializeArray(serializer, type, backingArray, bufferAccess)
                             : GenerateSlowSerializeArray(serializer, type, backingArray, bufferAccess);
                     }
@@ -287,7 +287,7 @@ namespace BinaryRecords.Providers
                         : deserialized;
 
                     // Deserialize
-                    blockBuilder += serializer.ShouldHandleBlittable(genericType)
+                    blockBuilder += serializer.IsTypeBlittable(genericType)
                             ? GenerateFastDeserializeArray(serializer, arrayType, backingArray, bufferAccess)
                             : GenerateSlowDeserializeArray(serializer, arrayType, backingArray, bufferAccess);
 

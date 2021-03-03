@@ -157,7 +157,7 @@ namespace BinaryRecords
             );
             
 #if NET5_0
-            var blockExpression = BitConverter.IsLittleEndian && RecordHasBlittableProperties(model)
+            var blockExpression = BitConverter.IsLittleEndian && IsBlittableOptimizationCandidate(model)
                 ? GenerateFastRecordDeserializer(model, bufferAccess)
                 : GenerateStandardRecordDeserializer(model, bufferAccess);
 #else
@@ -253,16 +253,15 @@ namespace BinaryRecords
             var nonBlittables = model.Properties.Except(blittables).ToArray();
             return (blittables, nonBlittables);
         }
-        
-        private bool RecordHasBlittableProperties(RecordConstructionModel model) => 
-            model.Properties.Any(p => _typingLibrary.IsTypeBlittable(p.PropertyType));
 
-        public bool ShouldHandleBlittable(Type type)
-        {
-            var provider = _typingLibrary.GetInterestedGeneratorProvider(type);
-            return provider != null && PrimitiveExpressionGeneratorProviders.IsBlittable(provider);
-        }
-        
+        private bool IsBlittableOptimizationCandidate(RecordConstructionModel model) =>
+            // Not too sure what a good starting point for the optimization is, benchmarks results
+            // have shown its reliably effective after 2 fields
+            model.Properties.Count(p => _typingLibrary.IsTypeBlittable(p.PropertyType)) > 2;
+
+        public bool IsTypeBlittable(Type type) =>
+            _typingLibrary.IsTypeBlittable(type);
+
         public ExpressionGeneratorProvider? GetInterestedGeneratorProvider(Type type) =>
             _typingLibrary.GetInterestedGeneratorProvider(type);
 

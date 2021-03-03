@@ -17,7 +17,7 @@ namespace BinaryRecords
         static BinarySerializer()
         {
             // Initialize our builtin generator providers
-            var generatorProviders = PrimitiveExpressionGeneratorProviders.Builtin
+            var generatorProviders = BufferExpressionGeneratorProviders.Builtin
                 .Concat(CollectionExpressionGeneratorProviders.Builtin)
                 .Concat(MiscExpressionGeneratorProviders.Builtin);
             foreach (var generatorProvider in generatorProviders) 
