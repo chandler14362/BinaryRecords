@@ -43,69 +43,69 @@ namespace BinaryRecords.Providers
         private static IEnumerable<ExpressionGeneratorProvider> CreateBuiltinProviders()
         {
             // Create the providers for each primitive type
-            var bufferType = typeof(SpanBufferWriter);
+            var bufferWriterType = typeof(SpanBufferWriter);
             var bufferReaderType = typeof(SpanBufferReader);
 
             // bool type
             yield return CreateBlittableBufferProvider<bool>(
-                bufferType.GetMethod("WriteBool"),
-                bufferReaderType.GetMethod("ReadBool")
+                bufferWriterType.GetMethod("WriteBool")!,
+                bufferReaderType.GetMethod("ReadBool")!
                 );
             
             // byte types
             yield return CreateBlittableBufferProvider<byte>(
-                bufferType.GetMethod("WriteUInt8"),
-                bufferReaderType.GetMethod("ReadUInt8")
+                bufferWriterType.GetMethod("WriteUInt8")!,
+                bufferReaderType.GetMethod("ReadUInt8")!
                 );
             yield return CreateBlittableBufferProvider<sbyte>(
-                bufferType.GetMethod("WriteInt8"),
-                bufferReaderType.GetMethod("ReadInt8")
+                bufferWriterType.GetMethod("WriteInt8")!,
+                bufferReaderType.GetMethod("ReadInt8")!
                 );   
             
             // short types
             yield return CreateBlittableBufferProvider<ushort>(
-                bufferType.GetMethod("WriteUInt16"), 
-                bufferReaderType.GetMethod("ReadUInt16")
+                bufferWriterType.GetMethod("WriteUInt16")!, 
+                bufferReaderType.GetMethod("ReadUInt16")!
                 );
             yield return CreateBlittableBufferProvider<short>(
-                bufferType.GetMethod("WriteInt16"),
-                bufferReaderType.GetMethod("ReadInt16")
+                bufferWriterType.GetMethod("WriteInt16")!,
+                bufferReaderType.GetMethod("ReadInt16")!
                 );
 
             // int types
             yield return CreateBlittableBufferProvider<uint>(
-                bufferType.GetMethod("WriteUInt32"),
-                bufferReaderType.GetMethod("ReadUInt32")
+                bufferWriterType.GetMethod("WriteUInt32")!,
+                bufferReaderType.GetMethod("ReadUInt32")!
                 );
             yield return CreateBlittableBufferProvider<int>(
-                bufferType.GetMethod("WriteInt32"), 
-                bufferReaderType.GetMethod("ReadInt32")
+                bufferWriterType.GetMethod("WriteInt32")!, 
+                bufferReaderType.GetMethod("ReadInt32")!
                 );
 
             // long types
             yield return CreateBlittableBufferProvider<ulong>(
-                bufferType.GetMethod("WriteUInt64"),
-                bufferReaderType.GetMethod("ReadUInt64")
+                bufferWriterType.GetMethod("WriteUInt64")!,
+                bufferReaderType.GetMethod("ReadUInt64")!
                 );
             yield return CreateBlittableBufferProvider<long>(
-                bufferType.GetMethod("WriteInt64"),
-                bufferReaderType.GetMethod("ReadInt64")
+                bufferWriterType.GetMethod("WriteInt64")!,
+                bufferReaderType.GetMethod("ReadInt64")!
                 );
 
             // float types
             yield return CreateBlittableBufferProvider<float>(
-                bufferType.GetMethod("WriteFloat32"),
-                bufferReaderType.GetMethod("ReadFloat32")
+                bufferWriterType.GetMethod("WriteFloat32")!,
+                bufferReaderType.GetMethod("ReadFloat32")!
                 );
             yield return CreateBlittableBufferProvider<double>(
-                bufferType.GetMethod("WriteFloat64"),
-                bufferReaderType.GetMethod("ReadFloat64")
+                bufferWriterType.GetMethod("WriteFloat64")!,
+                bufferReaderType.GetMethod("ReadFloat64")!
                 );
 
             // string type
             yield return CreateBufferProvider<string>(
-                bufferType.GetMethod("WriteUTF8String"),
-                bufferReaderType.GetMethod("ReadUTF8String")
+                bufferWriterType.GetMethod("WriteUTF8String")!,
+                bufferReaderType.GetMethod("ReadUTF8String")!
                 );
         }
     }

@@ -34,14 +34,14 @@ namespace BinaryRecords.Providers
                         Expression.Block(
                             Expression.Call(
                                 bufferAccess, 
-                                typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
                                 Expression.Constant((byte) 0)),
                             Expression.Return(returnLabel)
                         )
                     );
                     blockBuilder += Expression.Call(
                         bufferAccess, 
-                        typeof(SpanBufferWriter).GetMethod("WriteUInt8"),
+                        typeof(SpanBufferWriter).GetMethod("WriteUInt8")!,
                         Expression.Constant((byte) 1));
                     blockBuilder += serializer.GenerateTypeSerializer(type.GetGenericArguments()[0],
                         Expression.Property(dataAccess, "Value"), bufferAccess);
@@ -49,12 +49,12 @@ namespace BinaryRecords.Providers
                 },
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
                 {
-                    var nullableConstructor = type.GetConstructor(type.GetGenericArguments());
+                    var nullableConstructor = type.GetConstructor(type.GetGenericArguments())!;
                     var blockBuilder = new ExpressionBlockBuilder();
                     var returnLabel = Expression.Label(type);
                     blockBuilder += Expression.IfThenElse(
                         Expression.Equal(
-                            Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt8")), 
+                            Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt8")!), 
                             Expression.Constant((byte) 0)),
                         Expression.Return(returnLabel, Expression.Default(type)),
                         Expression.Return(
@@ -103,7 +103,7 @@ namespace BinaryRecords.Providers
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
                 {
                     var genericTypes = type.GetGenericArguments();
-                    var constructor = type.GetConstructor(genericTypes);
+                    var constructor = type.GetConstructor(genericTypes)!;
                     return Expression.New(constructor,
                         genericTypes.Select(t => serializer.GenerateTypeDeserializer(t, bufferAccess)));
                 }
@@ -134,7 +134,7 @@ namespace BinaryRecords.Providers
                     var generics = type.GetGenericArguments();
                     var keyType = generics[0];
                     var valueType = generics[1];
-                    var ctor = type.GetConstructor(generics);
+                    var ctor = type.GetConstructor(generics)!;
                     return Expression.New(ctor,
                         serializer.GenerateTypeDeserializer(keyType, bufferAccess),
                         serializer.GenerateTypeDeserializer(valueType, bufferAccess));
@@ -148,12 +148,12 @@ namespace BinaryRecords.Providers
                 IsInterested: (type, _) => type == typeof(DateTime),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                     Expression.Call(
-                        typeof(BufferExtensions).GetMethod("WriteDateTime"),
+                        typeof(BufferExtensions).GetMethod("WriteDateTime")!,
                         bufferAccess,
                         dataAccess),
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
                     Expression.Call(
-                        typeof(BufferExtensions).GetMethod("ReadDateTime"),
+                        typeof(BufferExtensions).GetMethod("ReadDateTime")!,
                         bufferAccess)
             );
 
@@ -163,10 +163,10 @@ namespace BinaryRecords.Providers
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(DateTimeOffset),
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
-                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("WriteDateTimeOffset"), 
+                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("WriteDateTimeOffset")!, 
                         dataAccess),
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
-                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset"))
+                    Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset")!)
             );
 
             // TimeSpan provider
@@ -177,15 +177,15 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) =>
                     Expression.Call(
                         bufferAccess,
-                        typeof(SpanBufferWriter).GetMethod("WriteInt64"),
+                        typeof(SpanBufferWriter).GetMethod("WriteInt64")!,
                         Expression.Property(dataAccess, "Ticks")
                     ),
                 GenerateDeserializeExpression: (serialize, type, bufferAccess) =>
                     Expression.New(
-                        typeof(TimeSpan).GetConstructor(new [] {typeof(long)}),
+                        typeof(TimeSpan).GetConstructor(new [] {typeof(long)})!,
                         Expression.Call(
                             bufferAccess,
-                            typeof(SpanBufferReader).GetMethod("ReadInt64")
+                            typeof(SpanBufferReader).GetMethod("ReadInt64")!
                         )
                     )
             );

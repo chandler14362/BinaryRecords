@@ -11,19 +11,13 @@ namespace BinaryRecords.Providers
 {
     public static class BlittableBlockTypeProvider
     {
-        private static Dictionary<string, Type> _blittableBlockCache = new();
+        private static readonly Dictionary<string, Type> _blittableBlockCache = new();
 
-        private static AssemblyBuilder _assemblyBuilder;
+        private static readonly AssemblyBuilder _assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("BinaryRecords.Dynamic.BlittableBlocks"), AssemblyBuilderAccess.Run);
 
-        private static ModuleBuilder _moduleBuilder;
-
-        static BlittableBlockTypeProvider()
-        {
-            _assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
-                new AssemblyName("BinaryRecords.Dynamic.BlittableBlocks"), AssemblyBuilderAccess.Run);
-            _moduleBuilder = _assemblyBuilder.DefineDynamicModule("BlittableBlocks");
-        }
-
+        private static readonly ModuleBuilder _moduleBuilder = _assemblyBuilder.DefineDynamicModule("BlittableBlocks");
+        
         private static string GenerateNameFromTypes(IEnumerable<Type> types) => 
             $"{string.Join("", types.Select(t => t.Name))}Block";
 
@@ -38,7 +32,7 @@ namespace BinaryRecords.Providers
                 TypeAttributes.BeforeFieldInit,
                 typeof(ValueType), typeSize);
 
-            var fieldOffsetConstructor = typeof(FieldOffsetAttribute).GetConstructor(new[] {typeof(int)});
+            var fieldOffsetConstructor = typeof(FieldOffsetAttribute).GetConstructor(new[] {typeof(int)})!;
 
             var fieldOffset = 0;
             for (var i = 0; i < types.Length; i++)
@@ -46,18 +40,19 @@ namespace BinaryRecords.Providers
                 var fieldName = $"Field{i}";
                 var type = types[i];
                 var fieldBuilder = typeBuilder.DefineField(fieldName, type, FieldAttributes.Public);
-                fieldBuilder.SetCustomAttribute(new CustomAttributeBuilder(fieldOffsetConstructor, 
-                    new object[] {fieldOffset}));
+                fieldBuilder.SetCustomAttribute(
+                    new CustomAttributeBuilder(fieldOffsetConstructor, new object[] {fieldOffset}));
                 fieldOffset += type.GetTypeValueSize();
             }
 
-            return typeBuilder.CreateType();
+            return typeBuilder.CreateType()!;
         }
         
         public static Type GetBlittableBlock(Type[] types)
         {
             var typeName = GenerateNameFromTypes(types);
-            if (_blittableBlockCache.TryGetValue(typeName, out var generatedType)) return generatedType;
+            if (_blittableBlockCache.TryGetValue(typeName, out var generatedType)) 
+                return generatedType;
             return _blittableBlockCache[typeName] = GenerateBlittableBlockType(types, typeName);
         }
     }

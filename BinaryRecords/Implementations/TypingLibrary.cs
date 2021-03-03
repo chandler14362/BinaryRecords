@@ -95,7 +95,7 @@ namespace BinaryRecords.Implementations
             // properties don't line up. This would happen with inheritance, but inheritance isn't encouraged
             var constructor = type.GetConstructor(Array.Empty<Type>()) 
                               ?? type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
-            _recordConstructionModels[type] = model = new(type, serializable.ToArray(), constructor);
+            _recordConstructionModels[type] = model = new(type, serializable.ToArray(), constructor!);
             return true;
         }
 

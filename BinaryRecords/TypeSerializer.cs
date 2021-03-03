@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -17,9 +18,9 @@ namespace BinaryRecords
     // TODO: A lot more code separation can be done here
     public class TypeSerializer
     {
-        public static readonly Type BufferWriterType = typeof(SpanBufferWriter).MakeByRefType();
+        private static readonly Type BufferWriterType = typeof(SpanBufferWriter).MakeByRefType();
 
-        public static readonly Type BufferReaderType = typeof(SpanBufferReader).MakeByRefType();
+        private static readonly Type BufferReaderType = typeof(SpanBufferReader).MakeByRefType();
         
         private readonly Dictionary<Type, RecordSerializationInvocationModel> _invocationModels = new();
         
@@ -30,7 +31,9 @@ namespace BinaryRecords
             _typingLibrary = typingLibrary;
         }
         
-        private bool TryGetRecordInvocationModel(Type type, out RecordSerializationInvocationModel serializer)
+        private bool TryGetRecordInvocationModel(
+            Type type, 
+            [MaybeNullWhen(false)] out RecordSerializationInvocationModel serializer)
         {
             // Check if we can already handle this type
             if (_invocationModels.TryGetValue(type, out serializer))
@@ -62,7 +65,7 @@ namespace BinaryRecords
                 Expression.Block(
                         Expression.Call(
                             bufferParameter, 
-                            typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                            typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
                             Expression.Constant((byte)0)
                             ),
                         Expression.Return(returnTarget)
@@ -71,7 +74,7 @@ namespace BinaryRecords
             
             blockBuilder += Expression.Call(
                 bufferParameter, 
-                typeof(SpanBufferWriter).GetMethod("WriteUInt8"), 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
                 Expression.Constant((byte)1)
                 );
 
@@ -149,7 +152,7 @@ namespace BinaryRecords
                 Expression.Equal(
                     Expression.Call(
                         bufferAccess, 
-                        typeof(SpanBufferReader).GetMethod("ReadUInt8")
+                        typeof(SpanBufferReader).GetMethod("ReadUInt8")!
                         ), 
                     Expression.Constant((byte)0)
                     ),
@@ -198,7 +201,8 @@ namespace BinaryRecords
         }
 
 #if NET5_0
-        private BlockExpression GenerateFastRecordDeserializer(RecordConstructionModel model,
+        private BlockExpression GenerateFastRecordDeserializer(
+            RecordConstructionModel model,
             Expression bufferAccess)
         {
             var blockBuilder = new ExpressionBlockBuilder();
@@ -207,7 +211,7 @@ namespace BinaryRecords
             var blittableTypes = blittables.Select(p => p.PropertyType).ToArray();
             
             var blockType = BlittableBlockTypeProvider.GetBlittableBlock(blittableTypes);
-            var readBlockMethod = typeof(BufferExtensions).GetMethod("ReadBlittableBytes").MakeGenericMethod(blockType);
+            var readBlockMethod = typeof(BufferExtensions).GetMethod("ReadBlittableBytes")!.MakeGenericMethod(blockType);
 
             var constructRecordMethod =
                 FastRecordInstantiationMethodProvider.GetFastRecordInstantiationMethod(model, blockType, nonBlittables);

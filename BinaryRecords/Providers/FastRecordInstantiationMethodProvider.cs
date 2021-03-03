@@ -29,7 +29,7 @@ namespace BinaryRecords.Providers
             // Get a reference to the block in the span
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Call, 
-                typeof(MemoryMarshal).GetMethod("AsRef", new [] {passedSpanType})
+                typeof(MemoryMarshal).GetMethod("AsRef", new [] {passedSpanType})!
                     .MakeGenericMethod(blockType));
             ilGenerator.Emit(OpCodes.Stloc, blockLocal);
             
@@ -44,7 +44,7 @@ namespace BinaryRecords.Providers
                 else
                 {
                     ilGenerator.Emit(OpCodes.Ldloc, blockLocal);
-                    ilGenerator.Emit(OpCodes.Ldfld, blockType.GetField($"Field{blittableIndex++}"));
+                    ilGenerator.Emit(OpCodes.Ldfld, blockType.GetField($"Field{blittableIndex++}")!);
                 }
             }
             
@@ -67,12 +67,12 @@ namespace BinaryRecords.Providers
             // Get a reference to the block in the span
             ilGenerator.Emit(OpCodes.Ldarg_0);
             ilGenerator.Emit(OpCodes.Call, 
-                typeof(MemoryMarshal).GetMethod("AsRef", new [] {passedSpanType})
+                typeof(MemoryMarshal).GetMethod("AsRef", new [] {passedSpanType})!
                     .MakeGenericMethod(blockType));
             ilGenerator.Emit(OpCodes.Stloc, blockLocal);
             
             // Construct a new instance of the record
-            var recordConstructor = model.type.GetConstructor(Array.Empty<Type>());
+            var recordConstructor = model.type.GetConstructor(Array.Empty<Type>())!;
             ilGenerator.Emit(OpCodes.Newobj, recordConstructor);
 
             // Now we can set all the fields of the record
@@ -91,11 +91,11 @@ namespace BinaryRecords.Providers
                 else
                 {
                     ilGenerator.Emit(OpCodes.Ldloc, blockLocal);
-                    ilGenerator.Emit(OpCodes.Ldfld, blockType.GetField($"Field{blittableIndex++}"));
+                    ilGenerator.Emit(OpCodes.Ldfld, blockType.GetField($"Field{blittableIndex++}")!);
                 }
                 
                 // Set the field we loaded
-                ilGenerator.EmitCall(OpCodes.Call, property.GetSetMethod(), null);
+                ilGenerator.EmitCall(OpCodes.Call, property.GetSetMethod()!, null);
             }
             
             // At this point our record should be at the top of the stack

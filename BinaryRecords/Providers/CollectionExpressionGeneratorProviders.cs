@@ -1,8 +1,6 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.InteropServices;
@@ -52,12 +50,12 @@ namespace BinaryRecords.Providers
             
             blockBuilder += Expression.Assign(enumerable, Expression.Convert(dataAccess, enumerableType));
             blockBuilder += Expression.Assign(enumerator, 
-                Expression.Call(enumerable, enumerableType.GetMethod("GetEnumerator")));
+                Expression.Call(enumerable, enumerableType.GetMethod("GetEnumerator")!));
             
             var countBookmark = blockBuilder.CreateVariable<SpanBufferWriter.Bookmark>();
             blockBuilder += Expression.Assign(countBookmark, 
                 Expression.Call(bufferAccess, 
-                    typeof(SpanBufferWriter).GetMethod("ReserveBookmark"), 
+                    typeof(SpanBufferWriter).GetMethod("ReserveBookmark")!, 
                     Expression.Constant(sizeof(ushort))));
 
             var written = blockBuilder.CreateVariable<ushort>();
@@ -65,7 +63,7 @@ namespace BinaryRecords.Providers
             var loopExit = Expression.Label();
             blockBuilder += Expression.Loop(
                 Expression.IfThenElse(
-                    Expression.Call(enumerator, typeof(IEnumerator).GetMethod("MoveNext")),
+                    Expression.Call(enumerator, typeof(IEnumerator).GetMethod("MoveNext")!),
                     Expression.Block(new []
                     {
                         serializer.GenerateTypeSerializer(genericType, 
@@ -77,7 +75,7 @@ namespace BinaryRecords.Providers
             );
             blockBuilder += Expression.Label(loopExit);
 
-            var writeBookmarkMethod = typeof(BufferExtensions).GetMethod("WriteUInt16Bookmark");
+            var writeBookmarkMethod = typeof(BufferExtensions).GetMethod("WriteUInt16Bookmark")!;
             return blockBuilder += Expression.Call(
                 writeBookmarkMethod,
                 bufferAccess,
@@ -108,12 +106,13 @@ namespace BinaryRecords.Providers
             // Read the element count
             var elementCount = blockBuilder.CreateVariable<int>();
             blockBuilder += Expression.Assign(elementCount, 
-                Expression.Convert(Expression.Call(bufferAccess, 
-                    typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
+                Expression.Convert(
+                    Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt16")!), 
+                    typeof(int)));
 
             // now deserialize each element
             blockBuilder += Expression.Assign(deserialized, 
-                collectionConstructor.GetParameters().Length == 1 
+                collectionConstructor!.GetParameters().Length == 1 
                     ? Expression.New(collectionConstructor, elementCount) 
                     : Expression.New(collectionConstructor));
 
@@ -144,7 +143,7 @@ namespace BinaryRecords.Providers
             var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
             blockBuilder += Expression.Call(
                 bufferAccess,
-                typeof(SpanBufferWriter).GetMethod("WriteUInt16"), 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt16")!, 
                 Expression.Convert(arrayLength, typeof(ushort)));
             
             var exitLabel = Expression.Label();
@@ -172,11 +171,11 @@ namespace BinaryRecords.Providers
             var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
             blockBuilder += Expression.Call(
                 bufferAccess,
-                typeof(SpanBufferWriter).GetMethod("WriteUInt16"), 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt16")!, 
                 Expression.Convert(arrayLength, typeof(ushort)));
                         
             var writeArrayMethod = typeof(CollectionExpressionGeneratorProviders)
-                .GetMethod("WriteBlittableArray").MakeGenericMethod(genericType);
+                .GetMethod("WriteBlittableArray")!.MakeGenericMethod(genericType);
             return blockBuilder += Expression.Call(writeArrayMethod, bufferAccess, dataAccess);
         }
 
@@ -209,7 +208,7 @@ namespace BinaryRecords.Providers
         {
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             var readArrayMethod = typeof(CollectionExpressionGeneratorProviders)
-                .GetMethod("ReadBlittableArray").MakeGenericMethod(genericType);
+                .GetMethod("ReadBlittableArray")!.MakeGenericMethod(genericType);
             return Expression.Call(readArrayMethod, bufferAccess, arrayAccess);
         }
         
@@ -276,10 +275,10 @@ namespace BinaryRecords.Providers
                     var elementCount = blockBuilder.CreateVariable<int>();
                     blockBuilder += Expression.Assign(elementCount, 
                         Expression.Convert(Expression.Call(bufferAccess, 
-                            typeof(SpanBufferReader).GetMethod("ReadUInt16")), typeof(int)));
+                            typeof(SpanBufferReader).GetMethod("ReadUInt16")!), typeof(int)));
                     
                     // Construct our type
-                    blockBuilder += Expression.Assign(deserialized, Expression.New(arrayConstructor, elementCount));
+                    blockBuilder += Expression.Assign(deserialized, Expression.New(arrayConstructor!, elementCount));
 
                     // Get the backing array
                     Expression backingArray = type.BaseType != typeof(Array)
@@ -306,7 +305,7 @@ namespace BinaryRecords.Providers
                 isInterested: type => type.IsGenericType(typeof(HashSet<>)),
                 genericBackingType: typeof(HashSet<>),
                 generateAddElement: (instance, generic, deserialize) => 
-                    Expression.Call(instance, typeof(HashSet<>).MakeGenericType(generic).GetMethod("Add"), deserialize())
+                    Expression.Call(instance, typeof(HashSet<>).MakeGenericType(generic).GetMethod("Add")!, deserialize())
             );
             
             // LinkedList<> support
@@ -315,7 +314,7 @@ namespace BinaryRecords.Providers
                 genericBackingType: typeof(LinkedList<>),
                 generateAddElement: (instance, generic, deserialize) => 
                     Expression.Call(instance, 
-                        typeof(LinkedList<>).MakeGenericType(generic).GetMethod("AddLast", new [] {generic}), 
+                        typeof(LinkedList<>).MakeGenericType(generic).GetMethod("AddLast", new [] {generic})!, 
                         deserialize())
             );
             
@@ -325,7 +324,7 @@ namespace BinaryRecords.Providers
                 genericBackingType: typeof(Dictionary<,>),
                 generateAddElement: (instance, generic, deserialize) => 
                     Expression.Call(
-                        typeof(DictionaryExtensions).GetMethod("Add").MakeGenericMethod(generic.GetGenericArguments()), 
+                        typeof(DictionaryExtensions).GetMethod("Add")!.MakeGenericMethod(generic.GetGenericArguments()), 
                         instance, 
                         deserialize())
             );

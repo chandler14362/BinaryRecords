@@ -24,12 +24,12 @@ namespace BinaryRecords.Extensions
             // If the type is the generic interface we need to return that
             if (type.IsGenericType && type.GetGenericTypeDefinition() == genericType) return type;
             return type.GetInterfaces()
-                .FirstOrDefault(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericType);
+                .FirstOrDefault(x => x.IsGenericType && x.GetGenericTypeDefinition() == genericType)!;
         }
         
         public static bool IsTuple(this Type type)
         {
-#if NETSTANDARD2_1
+#if NETSTANDARD2_1 || NET5_0
             return type.IsGenericType && type.ImplementsInterface(typeof(ITuple));
 #else
             var typeName = type.FullName;
