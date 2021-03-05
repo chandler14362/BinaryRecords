@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;netstandard2.1;net5.0</TargetFrameworks>
     <LangVersion>9</LangVersion>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <Authors>Chandler Stowell</Authors>
     <Description>Library for serializing the C# 9 record types with no attributes or type registration.</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -19,7 +19,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Krypton.Buffers" Version="2.0.2" />
+    <PackageReference Include="Krypton.Buffers" Version="2.0.3" />
   </ItemGroup>
 
   <ItemGroup>

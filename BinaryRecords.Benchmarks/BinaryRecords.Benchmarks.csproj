@@ -12,7 +12,7 @@
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
-      <PackageReference Include="Krypton.Buffers" Version="2.0.2" />
+      <PackageReference Include="Krypton.Buffers" Version="2.0.3" />
       <PackageReference Include="Google.Protobuf" Version="3.14.0" />
     </ItemGroup>
 
