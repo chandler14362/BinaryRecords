@@ -309,7 +309,11 @@ namespace BinaryRecords.Providers
                     var returnLabel = Expression.Label(type);
                     return blockBuilder += Expression.Label(returnLabel, deserialized);
                 },
-                GenerateTypeRecord: (type, typingLibrary) => new ListTypeRecord(typingLibrary.GetTypeRecord(type))
+                GenerateTypeRecord: (type, typingLibrary) =>
+                {
+                    var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
+                    return new ListTypeRecord(typingLibrary.GetTypeRecord(genericType));
+                }
             );
             
             // Provider for HashSet<>
