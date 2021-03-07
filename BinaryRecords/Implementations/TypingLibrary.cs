@@ -8,6 +8,7 @@ using BinaryRecords.Delegates;
 using BinaryRecords.Extensions;
 using BinaryRecords.Models;
 using BinaryRecords.Providers;
+using BinaryRecords.Records;
 
 namespace BinaryRecords.Implementations
 {
@@ -16,6 +17,8 @@ namespace BinaryRecords.Implementations
         private readonly List<ExpressionGeneratorProvider> _expressionGeneratorProviders = new();
         private readonly Dictionary<Type, RecordConstructionModel> _recordConstructionModels = new();
         private readonly Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
+        private readonly Dictionary<Type, TypeRecord> _typeRecords = new();
+        private uint _lastExtensionId = 0;
         
         public void AddGeneratorProvider<T>(
             SerializeGenericDelegate<T> serializerDelegate, 
@@ -31,16 +34,13 @@ namespace BinaryRecords.Implementations
                 GenerateSerializeExpression: (_, _, dataAccess, bufferAccess) => 
                     Expression.Invoke(Expression.Constant(serializerDelegate), bufferAccess, dataAccess),
                 GenerateDeserializeExpression: (_, _, bufferAccess) => 
-                    Expression.Invoke(Expression.Constant(deserializerDelegate), bufferAccess));
+                    Expression.Invoke(Expression.Constant(deserializerDelegate), bufferAccess),
+                GenerateTypeRecord: (type, typingLibrary) => new ExtensionTypeRecord(_lastExtensionId++));
             _expressionGeneratorProviders.Add(provider);
         }
 
-        public void AddGeneratorProvider(ExpressionGeneratorProvider expressionGeneratorProvider)
-        {
-            if (_expressionGeneratorProviders.Contains(expressionGeneratorProvider))
-                throw new Exception($"Tried adding provider twice: {expressionGeneratorProvider.Name}");
+        public void AddGeneratorProvider(ExpressionGeneratorProvider expressionGeneratorProvider) =>
             _expressionGeneratorProviders.Add(expressionGeneratorProvider);
-        }
 
         public ExpressionGeneratorProvider? GetInterestedGeneratorProvider(Type type)
         {
@@ -51,6 +51,16 @@ namespace BinaryRecords.Implementations
             return _typeProviderCache[type] = provider;
         }
 
+        public TypeRecord GetTypeRecord(Type type)
+        {
+            if (_typeRecords.TryGetValue(type, out var typeRecord))
+                return typeRecord;
+            var provider = GetInterestedGeneratorProvider(type);
+            if (provider is null)
+                throw new Exception($"No provider interested in type: {type.FullName}");
+            return _typeRecords[type] = provider.GenerateTypeRecord(type, this);
+        }
+        
         public bool IsTypeSerializable(Type type) => 
             _expressionGeneratorProviders.TryGetInterestedProvider(type, this, out _) || 
             TryGenerateConstructionModel(type, out _);
@@ -93,8 +103,8 @@ namespace BinaryRecords.Implementations
 
             // TODO: Figure out if we need to do more constructor checks, maybe if a constructor exists where our
             // properties don't line up. This would happen with inheritance, but inheritance isn't encouraged
-            var constructor = type.GetConstructor(Array.Empty<Type>()) 
-                              ?? type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
+            var constructor = type.GetConstructor(Array.Empty<Type>()) ?? 
+                type.GetConstructor(serializable.Select(s => s.PropertyType).ToArray());
             _recordConstructionModels[type] = model = new(type, serializable.ToArray(), constructor!);
             return true;
         }

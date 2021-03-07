@@ -15,7 +15,6 @@ namespace BinaryRecords.Enums
         Float,
         Double,
         List,
-        Map,
         Sequence,
         Constructable,
         Extension

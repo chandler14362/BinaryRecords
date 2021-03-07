@@ -9,5 +9,6 @@ namespace BinaryRecords.Providers
         ProviderPriority Priority,
         Func<Type, ITypingLibrary, bool> IsInterested,
         GenerateSerializeExpressionDelegate GenerateSerializeExpression,
-        GenerateDeserializeExpressionDelegate GenerateDeserializeExpression);
+        GenerateDeserializeExpressionDelegate GenerateDeserializeExpression,
+        GenerateTypeRecordDelegate GenerateTypeRecord);
 }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using BinaryRecords.Expressions;
 using BinaryRecords.Extensions;
+using BinaryRecords.Records;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
@@ -64,7 +65,12 @@ namespace BinaryRecords.Providers
                                 )
                         ));
                     return blockBuilder += Expression.Label(returnLabel, Expression.Default(type));
-                });
+                },
+                GenerateTypeRecord: (type, typingLibrary) => new SequenceTypeRecord(new []
+                {
+                    typingLibrary.GetTypeRecord(typeof(bool)),
+                    typingLibrary.GetTypeRecord(type.GetGenericArguments()[0])
+                }));
         
             // Provider for enums
             yield return new(
@@ -82,6 +88,11 @@ namespace BinaryRecords.Providers
                 {
                     var enumType = type.GetFields()[0].FieldType;
                     return Expression.Convert(serializer.GenerateTypeDeserializer(enumType, bufferAccess), type);
+                },
+                GenerateTypeRecord: (type, typingLibrary) =>
+                {
+                    var enumType = type.GetFields()[0].FieldType;
+                    return typingLibrary.GetTypeRecord(enumType);
                 }
             );
             
@@ -105,6 +116,12 @@ namespace BinaryRecords.Providers
                     var constructor = type.GetConstructor(genericTypes)!;
                     return Expression.New(constructor,
                         genericTypes.Select(t => serializer.GenerateTypeDeserializer(t, bufferAccess)));
+                },
+                GenerateTypeRecord: (type, typingLibrary) =>
+                {
+                    var genericTypes = type.GetGenericArguments();
+                    var memberTypeRecords = genericTypes.Select(typingLibrary.GetTypeRecord).ToArray();
+                    return new SequenceTypeRecord(memberTypeRecords);
                 }
             );
             
@@ -137,9 +154,16 @@ namespace BinaryRecords.Providers
                     return Expression.New(ctor,
                         serializer.GenerateTypeDeserializer(keyType, bufferAccess),
                         serializer.GenerateTypeDeserializer(valueType, bufferAccess));
+                },
+                GenerateTypeRecord: (type, typingLibrary) =>
+                {
+                    var memberTypes = type.GetGenericArguments().Select(typingLibrary.GetTypeRecord).ToArray();
+                    return new SequenceTypeRecord(memberTypes);
                 }
             );
 
+            /* TODO: Rewrite these to use Expression or maybe implement some sort of dynamic struct provider
+                     These are types we might want to manually implement anyways
             // DateTime provider
             yield return new(
                 Name: "DateTimeProvider",
@@ -167,6 +191,7 @@ namespace BinaryRecords.Providers
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
                     Expression.Call(bufferAccess, typeof(BufferExtensions).GetMethod("ReadDateTimeOffset")!)
             );
+            */
 
             // TimeSpan provider
             yield return new(
@@ -186,7 +211,11 @@ namespace BinaryRecords.Providers
                             bufferAccess,
                             typeof(SpanBufferReader).GetMethod("ReadInt64")!
                         )
-                    )
+                    ),
+                GenerateTypeRecord: (type, typingLibrary) =>
+                {
+                    return new SequenceTypeRecord(new []{typingLibrary.GetTypeRecord(typeof(long))});
+                }
             );
         }
     }

@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using BinaryRecords.Delegates;
 using BinaryRecords.Expressions;
 using BinaryRecords.Extensions;
+using BinaryRecords.Implementations;
+using BinaryRecords.Records;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
@@ -222,7 +224,16 @@ namespace BinaryRecords.Providers
                                                  type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: GenerateSerializeEnumerable,
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
-                    GenerateDeserializeEnumerable(serializer, type, bufferAccess, genericBackingType, generateAddElement)
+                    GenerateDeserializeEnumerable(serializer, type, bufferAccess, genericBackingType, generateAddElement),
+                GenerateTypeRecord: (type, typeLibrary) =>
+                {
+                    var enumerableInterface = 
+                        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
+                            ? type
+                            : type.GetGenericInterface(typeof(IEnumerable<>));
+                    var genericType = enumerableInterface.GetGenericArguments()[0];
+                    return new ListTypeRecord(typeLibrary.GetTypeRecord(genericType));
+                }
             );
         }
 
@@ -297,7 +308,8 @@ namespace BinaryRecords.Providers
                     
                     var returnLabel = Expression.Label(type);
                     return blockBuilder += Expression.Label(returnLabel, deserialized);
-                }
+                },
+                GenerateTypeRecord: (type, typingLibrary) => new ListTypeRecord(typingLibrary.GetTypeRecord(type))
             );
             
             // Provider for HashSet<>

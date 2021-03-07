@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using BinaryRecords.Delegates;
 using BinaryRecords.Models;
 using BinaryRecords.Providers;
+using BinaryRecords.Records;
 
 namespace BinaryRecords.Abstractions
 {
     public interface ITypingLibrary
-    { 
+    {
         void AddGeneratorProvider<T>(
             SerializeGenericDelegate<T> serializerDelegate,
             DeserializeGenericDelegate<T> deserializerDelegate,
@@ -15,6 +16,8 @@ namespace BinaryRecords.Abstractions
             ProviderPriority priority = ProviderPriority.High);
         void AddGeneratorProvider(ExpressionGeneratorProvider expressionGeneratorProvider);
         ExpressionGeneratorProvider? GetInterestedGeneratorProvider(Type type);
+
+        TypeRecord GetTypeRecord(Type type);
         
         bool IsTypeSerializable(Type type);
         bool IsTypeBlittable(Type type);

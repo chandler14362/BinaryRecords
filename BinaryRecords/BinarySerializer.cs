@@ -5,6 +5,7 @@ using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
 using BinaryRecords.Implementations;
 using BinaryRecords.Providers;
+using BinaryRecords.Records;
 using Krypton.Buffers;
 
 namespace BinaryRecords
@@ -19,7 +20,8 @@ namespace BinaryRecords
             // Initialize our builtin generator providers
             var generatorProviders = BufferExpressionGeneratorProviders.Builtin
                 .Concat(CollectionExpressionGeneratorProviders.Builtin)
-                .Concat(MiscExpressionGeneratorProviders.Builtin);
+                .Concat(MiscExpressionGeneratorProviders.Builtin)
+                .Concat(RecordExpressionGeneratorProvider.Builtin);
             foreach (var generatorProvider in generatorProviders) 
                 TypingLibrary.AddGeneratorProvider(generatorProvider);
         }
