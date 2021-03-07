@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
-namespace BinaryRecords.Expressions
+namespace BinaryRecords.Util
 {
     public class ExpressionBlockBuilder
     {

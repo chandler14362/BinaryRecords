@@ -21,9 +21,9 @@ namespace BinaryRecords.Providers
                 Name: $"{typeof(T)}BlittableBufferProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
+                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess) => 
                     Expression.Call(bufferAccess, serialize, dataAccess),
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
+                GenerateDeserializeExpression: (_, _, bufferAccess) => 
                     Expression.Call(bufferAccess, deserialize),
                 GenerateTypeRecord: (_, _) => new PrimitiveTypeRecord(serializableDataType)
             );
