@@ -43,12 +43,12 @@ uint keyCount
 repeating (uint key, uint size)
 
 if guid matches local version it is considered confident and header is skipped.
-this allows for ultra fast deserialization as if there were no versioning to begin with
-it is done completely flat, no looping
+this allows for ultra fast deserialization as if there were no versioning to begin with.
+it is done completely flat, no looping.
 
-if guid doesn't match local, a non-confident deserialize is ran instead
+if guid doesn't match local, a non-confident deserialize is ran instead.
 iterates through each key, skipping keys we dont have local fields for.
 missing fields are filled in with default values.
-data only ever seeks forward, never backwards
+data only ever seeks forward, never backwards.
 
-reserialized data gets put back at full confidence so next time its deserialized its ultra fast again
+reserialized data gets put back at full confidence so next time its deserialized its ultra fast again.
