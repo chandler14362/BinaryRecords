@@ -30,10 +30,10 @@ namespace BinaryRecords.Implementations
                 GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += Expression.Invoke(
                         Expression.Constant(serializerDelegate), bufferAccess, dataAccess);
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (_, _, bufferAccess) => 

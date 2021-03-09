@@ -8,21 +8,20 @@ using BinaryRecords.Abstractions;
 using BinaryRecords.Attributes;
 using BinaryRecords.Extensions;
 using BinaryRecords.Records;
+using BinaryRecords.Util;
+using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
     public static class RecordExpressionGeneratorProvider
     {
-        public static IReadOnlyList<ExpressionGeneratorProvider> Builtin = new[] {CreateBuiltinProvider()};
+        public static readonly IReadOnlyList<ExpressionGeneratorProvider> Builtin = new[] {CreateBuiltinProvider()};
 
-        private static readonly Dictionary<Type, RecordConstructionRecord> _recordConstructionRecords = new();
+        private static readonly Dictionary<Type, RecordConstructionRecord> RecordConstructionRecords = new();
         
         private record RecordConstructionRecord(
-            Type Type, 
             IReadOnlyList<(uint Key, PropertyInfo)> Properties,
-            ConstructorInfo ConstructorInfo,
-            bool Versioned,
-            ConstructableTypeRecord ConstructableTypeRecord)
+            ConstructorInfo ConstructorInfo)
         {
             public bool UsesMemberInit => ConstructorInfo.GetParameters().Length == 0;
         }
@@ -47,10 +46,6 @@ namespace BinaryRecords.Providers
             Type type, 
             ITypingLibrary typingLibrary)
         {
-            // Type alias are a requirement for cross-language types, if we aren't given one, we get stuck in .NET
-            var aliasAttribute = type.GetCustomAttribute<AliasAttribute>();
-            var alias = aliasAttribute?.Alias ?? type.FullName!;
-            
             var versioned = false;
             
             var heldKeys = new HashSet<uint>();
@@ -91,13 +86,13 @@ namespace BinaryRecords.Providers
                 if (keyAttributes.Length == 0)
                 {
                     if (versioned)
-                        throw new Exception($"Inconsistent type versioning on record: {type.FullName}");
+                        ThrowHelpers.ThrowInconsistentVersioning(type);
                     recordProperties.Add((0, property));
                 }
                 else if (keyAttributes.Length == 1)
                 {
                     if (!versioned)
-                        throw new Exception($"Inconsistent type versioning on record: {type.FullName}");
+                        ThrowHelpers.ThrowInconsistentVersioning(type);
                     versioned = true;
                     keyId = keyAttributes[0].Index;
                     if (!heldKeys.Add(keyId))
@@ -116,22 +111,154 @@ namespace BinaryRecords.Providers
             }
             
             Debug.Assert(usesMemberInit || typeRecords.Count == constructor.GetParameters().Length);
-            
-            return new ConstructableTypeRecord(alias, typeRecords, versioned);
+            RecordConstructionRecords[type] = new RecordConstructionRecord(recordProperties, constructor);
+            return new ConstructableTypeRecord(typeRecords, versioned);
         }
 
         private static Expression GenerateSerializeExpression(
             ITypingLibrary typingLibrary, 
             Type type, 
             Expression dataAccess, 
+            Expression bufferAccess,
+            AutoVersioning? autoVersioning)
+        {
+            var typeRecord = typingLibrary.GetTypeRecord(type) as ConstructableTypeRecord;
+            if (typeRecord == null) throw new Exception();
+            var typeGuid = TypeRecordGuidProvider.ComputeGuid(typeRecord);
+            
+            var blockBuilder = new ExpressionBlockBuilder();
+            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+
+            Expression? rentedHeaderArray = null;
+            Expression? headerWriter = null;
+            Expression? headerBookmark = null;
+            int headerSize = 0;
+            if (typeRecord.Versioned)
+            {
+                // Calculate header size
+                headerSize = 16 + sizeof(uint) + (typeRecord.Members.Count * sizeof(uint) * 2);
+                
+                // Since Expressions don't support stackalloc, we need to pool an array here. Oh well.
+                // Not the end of the world
+                rentedHeaderArray = blockBuilder.CreateVariable<byte[]>();
+                blockBuilder += Expression.Assign(rentedHeaderArray, ByteArrayPoolExpressions.Rent(headerSize));
+
+                // Build the header writer
+                headerWriter = blockBuilder.CreateVariable(typeof(SpanBufferWriter));
+                blockBuilder += Expression.Assign(
+                    headerWriter, 
+                    Expression.Call(
+                        SpanBufferWriterUtil.FixedFromArrayMethod, 
+                        rentedHeaderArray,
+                        Expression.Constant(headerSize)));
+                
+                // Write our type guid
+                blockBuilder += BufferWriterExpressions.WriteGuid(
+                    headerWriter, 
+                    Expression.Constant(typeGuid));
+                
+                // Write the key count
+                blockBuilder += BufferWriterExpressions.WriteUInt32(
+                    headerWriter,
+                    Expression.Constant((uint) typeRecord.Members.Count));
+                
+                // Reserve a bookmark on the buffer for our header
+                headerBookmark = blockBuilder.CreateVariable<SpanBufferWriter.Bookmark>();
+                blockBuilder += Expression.Assign(
+                    headerBookmark,
+                    BufferWriterExpressions.ReserveBookmark(bufferAccess, headerSize));
+            }
+
+            var endLabel = Expression.Label();
+
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(dataAccess, Expression.Constant(null)),
+                Expression.Block(
+                        Expression.Call(
+                            bufferAccess, 
+                            typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
+                            Expression.Constant((byte)0)
+                            ),
+                        Expression.Return(endLabel)
+                        )
+                );
+            
+            blockBuilder += Expression.Call(
+                bufferAccess, 
+                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
+                Expression.Constant((byte)1)
+                );
+
+            var recordConstruction = RecordConstructionRecords[type];
+            var (blittables, nonBlittables) = GetRecordPropertyLayout(typingLibrary, recordConstruction);
+            
+            // Serialize each blittable property
+            blockBuilder = blittables.Aggregate(blockBuilder, 
+                (current, property) => 
+                    current + typingLibrary.GenerateSerializeExpression(
+                        property.Property.PropertyType, 
+                        Expression.Property(dataAccess, property.Property), 
+                        bufferAccess,
+                        typeRecord.Versioned ? new AutoVersioning(property.Key, headerWriter!) : null));
+
+            // Now we serialize each non-blittable property
+            blockBuilder = nonBlittables.Aggregate(blockBuilder, 
+                (current, property) => 
+                    current + typingLibrary.GenerateSerializeExpression(
+                        property.Property.PropertyType, 
+                        Expression.Property(dataAccess, property.Property), 
+                        bufferAccess,
+                        typeRecord.Versioned ? new AutoVersioning(property.Key, headerWriter!) : null));
+            
+            blockBuilder += Expression.Label(endLabel);
+            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+            
+            // If we are versioned we need to write our header bookmark and clean up our rented array
+            if (typeRecord.Versioned)
+            {
+                blockBuilder += Expression.Call(
+                    BufferExtensions.WriteSizedArrayBookmarkMethod,
+                    bufferAccess,
+                    headerBookmark!,
+                    rentedHeaderArray!,
+                    Expression.Constant(headerSize));
+                blockBuilder += ByteArrayPoolExpressions.Return(rentedHeaderArray!);
+            }
+
+            return blockBuilder;
+        }
+        
+        private static Expression GenerateDeserializeExpression(
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression bufferAccess)
+        {
+            var typeRecord = typingLibrary.GetTypeRecord(type) as ConstructableTypeRecord;
+            if (typeRecord == null) throw new Exception();
+            var constructionRecord = RecordConstructionRecords[type];
+            throw new NotImplementedException();
+        }
+
+        private static Expression GenerateStandardDeserializeExpression(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord,
+            Expression bufferAccess)
+        {
+            throw new NotImplementedException();
+        }
+        
+        private static Expression GenerateFastDeserializeExpression(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
             throw new NotImplementedException();
         }
 
-        private static Expression GenerateDeserializeExpression(
+        private static Expression GenerateNonConfidentDeserializeExpression(
             ITypingLibrary typingLibrary,
-            Type type,
+            RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
             throw new NotImplementedException();
@@ -290,30 +417,23 @@ namespace BinaryRecords.Providers
 #endif
 */
 
-        private static (PropertyInfo[] Blittables, PropertyInfo[] NonBlittables) GetRecordPropertyLayout(
-            RecordConstructionRecord constructionRecord, 
-            ITypingLibrary typingLibrary)
+        private static ((uint Key, PropertyInfo Property)[] Blittables, (uint Key, PropertyInfo Property)[] NonBlittables) GetRecordPropertyLayout(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord)
         {
-            var blittables = constructionRecord.Properties.Where(p => typingLibrary.IsTypeBlittable(p.Item2.PropertyType)).ToArray();
+            var blittables = constructionRecord.Properties.Where(
+                p => typingLibrary.IsTypeBlittable(p.Item2.PropertyType)).ToArray();
             var nonBlittables = constructionRecord.Properties.Except(blittables).ToArray();
-            return (blittables.Select(t => t.Item2).ToArray(), nonBlittables.Select(t => t.Item2).ToArray());
+            return (blittables, nonBlittables);
         }
 
         private static bool IsBlittableOptimizationCandidate(
-            RecordConstructionRecord model, 
-            ITypingLibrary typingLibrary) =>
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord model) =>
             // Not too sure what a good starting point for the optimization is, benchmarks results
             // have shown its reliably effective after 2 fields
             model.Properties.Count(p => typingLibrary.IsTypeBlittable(p.Item2.PropertyType)) > 2;
-        
-        private static Expression GenerateConfidentDeserializeExpression(
-            ITypingLibrary typingLibrary,
-            Type type,
-            Expression bufferAccess)
-        {
-            throw new NotImplementedException();
-        }
-        
+
         private static ExpressionGeneratorProvider CreateBuiltinProvider()
         {
             return new(

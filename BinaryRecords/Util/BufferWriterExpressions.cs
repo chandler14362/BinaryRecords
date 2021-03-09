@@ -1,3 +1,4 @@
+using System;
 using System.Linq.Expressions;
 using BinaryRecords.Extensions;
 using Krypton.Buffers;
@@ -6,19 +7,33 @@ namespace BinaryRecords.Util
 {
     public static class BufferWriterExpressions
     {
+        private static readonly Type SpanBufferWriterType = typeof(SpanBufferWriter);
+        
         public static Expression BufferSize(Expression bufferAccess) =>
             Expression.PropertyOrField(bufferAccess, "Size");
-        
+
+        public static Expression WriteBool(Expression bufferAccess, Expression value) =>
+            Expression.Call(
+                bufferAccess,
+                SpanBufferWriterType.GetMethod("WriteBool")!,
+                value);
+
         public static Expression WriteUInt32(Expression bufferAccess, Expression value) =>
             Expression.Call(
                 bufferAccess,
-                typeof(SpanBufferWriter).GetMethod("WriteUInte32")!,
+                SpanBufferWriterType.GetMethod("WriteUInt32")!,
+                value);
+
+        public static Expression WriteGuid(Expression bufferAccess, Expression value) =>
+            Expression.Call(
+                bufferAccess,
+                SpanBufferWriterType.GetMethod("WriteGuid")!,
                 value);
         
         public static Expression ReserveBookmark(Expression bufferAccess, int size) =>
             Expression.Call(
                 bufferAccess, 
-                typeof(SpanBufferWriter).GetMethod("ReserveBookmark")!, 
+                SpanBufferWriterType.GetMethod("ReserveBookmark")!, 
                 Expression.Constant(size));
 
         public static unsafe Expression ReserveBookmark<T>(Expression bufferAccess)

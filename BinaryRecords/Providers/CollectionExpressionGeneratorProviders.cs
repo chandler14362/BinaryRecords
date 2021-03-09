@@ -51,7 +51,7 @@ namespace BinaryRecords.Providers
             var enumeratorType = typeof(IEnumerator<>).MakeGenericType(generics);
 
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
             
             var enumerable = blockBuilder.CreateVariable(enumerableType);
             var enumerator = blockBuilder.CreateVariable(enumeratorType);
@@ -82,7 +82,7 @@ namespace BinaryRecords.Providers
             );
             blockBuilder += Expression.Label(loopExit);
             blockBuilder += BufferWriterExpressions.WriteUInt16Bookmark(bufferAccess, countBookmark, written);
-            autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
             return blockBuilder;
         }
 
@@ -149,7 +149,7 @@ namespace BinaryRecords.Providers
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
             
             var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
             blockBuilder += Expression.Call(
@@ -174,7 +174,7 @@ namespace BinaryRecords.Providers
                     Expression.Break(exitLabel))
             );
             blockBuilder += Expression.Label(exitLabel);
-            autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
             return blockBuilder;    
         }
 
@@ -186,7 +186,7 @@ namespace BinaryRecords.Providers
         {
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
             
             // Write the element count
             var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
@@ -198,7 +198,7 @@ namespace BinaryRecords.Providers
             var writeArrayMethod = typeof(CollectionExpressionGeneratorProviders)
                 .GetMethod("WriteBlittableArray")!.MakeGenericMethod(genericType);
             blockBuilder += Expression.Call(writeArrayMethod, bufferAccess, dataAccess);
-            autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
             return blockBuilder;
         }
 

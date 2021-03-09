@@ -15,7 +15,7 @@ namespace BinaryRecords.Util
             _versionHeaderBuffer = versionHeaderBuffer;
         }
         
-        public void StartVersioning(ExpressionBlockBuilder blockBuilder, Expression bufferAccess)
+        public void MarkVersioningStart(ExpressionBlockBuilder blockBuilder, Expression bufferAccess)
         {
             _startingSize = blockBuilder.CreateVariable<int>();
             blockBuilder += Expression.Assign(
@@ -23,14 +23,16 @@ namespace BinaryRecords.Util
                 BufferWriterExpressions.BufferSize(bufferAccess));
         }
 
-        public void EndVersioning(ExpressionBlockBuilder blockBuilder, Expression bufferAccess)
+        public void MarkVersioningEnd(ExpressionBlockBuilder blockBuilder, Expression bufferAccess)
         {
             blockBuilder += BufferWriterExpressions.WriteUInt32(
                 _versionHeaderBuffer,
                 Expression.Constant(_key));
             blockBuilder += BufferWriterExpressions.WriteUInt32(
                 _versionHeaderBuffer,
-                Expression.Subtract(BufferWriterExpressions.BufferSize(bufferAccess), _startingSize!));
+                Expression.Convert(
+                    Expression.Subtract(BufferWriterExpressions.BufferSize(bufferAccess), _startingSize!),
+                    typeof(uint)));
         }
     }
 }

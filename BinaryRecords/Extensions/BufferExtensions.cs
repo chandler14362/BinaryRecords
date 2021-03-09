@@ -1,5 +1,7 @@
 using System;
 using System.Buffers.Binary;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Krypton.Buffers;
 
@@ -7,6 +9,8 @@ namespace BinaryRecords.Extensions
 {
     public static class BufferExtensions
     {
+        private static readonly Type BufferExtensionsType = typeof(BufferExtensions);
+        
         public static void WriteUInt16Bookmark(
             ref this SpanBufferWriter buffer,
             in SpanBufferWriter.Bookmark bookmark, 
@@ -25,6 +29,18 @@ namespace BinaryRecords.Extensions
             ulong value) =>
             buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt64LittleEndian);
 
+        public static readonly MethodInfo WriteSizedArrayBookmarkMethod =
+            BufferExtensionsType.GetMethod("WriteSizedArrayBookmark")!;
+        
+        public static void WriteSizedArrayBookmark(
+            ref this SpanBufferWriter buffer,
+            in SpanBufferWriter.Bookmark bookmark,
+            byte[] array,
+            int size) =>
+            buffer.WriteBookmark(bookmark, (Array: array, Size: size), (span, state) =>
+                state.Array.AsSpan(0, size).CopyTo(span)
+            );
+        
         public static unsafe ReadOnlySpan<byte> ReadBlittableBytes<T>(ref this SpanBufferReader buffer) 
             where T : unmanaged =>
             buffer.ReadBytes(sizeof(T));

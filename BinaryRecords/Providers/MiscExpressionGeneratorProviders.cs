@@ -26,7 +26,7 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     
                     var endLabel = Expression.Label();
                     blockBuilder += Expression.IfThen(
@@ -50,7 +50,7 @@ namespace BinaryRecords.Providers
                         Expression.Property(dataAccess, "Value"), bufferAccess, null);
                     blockBuilder += Expression.Label(endLabel);
                     
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
@@ -87,13 +87,13 @@ namespace BinaryRecords.Providers
                 {
                     var enumType = type.GetFields()[0].FieldType;
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += typingLibrary.GenerateSerializeExpression(
                         enumType,
                         Expression.Convert(dataAccess, enumType), 
                         bufferAccess, 
                         null);
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
@@ -111,7 +111,7 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += type.GetGenericArguments().Select((genericType, i) => 
                         typingLibrary.GenerateSerializeExpression(
                             genericType, 
@@ -119,7 +119,7 @@ namespace BinaryRecords.Providers
                             bufferAccess, 
                             null)
                         );
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
@@ -150,7 +150,7 @@ namespace BinaryRecords.Providers
                     var valueType = generics[1];
                     
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
 
                     blockBuilder += serializer.GenerateSerializeExpression(
                         keyType,
@@ -163,7 +163,7 @@ namespace BinaryRecords.Providers
                         bufferAccess, 
                         null);
                     
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
@@ -222,13 +222,13 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += Expression.Call(
                         bufferAccess,
                         typeof(SpanBufferWriter).GetMethod("WriteInt64")!,
                         Expression.Property(dataAccess, "Ticks")
                     );
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>

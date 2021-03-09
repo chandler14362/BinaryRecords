@@ -25,9 +25,9 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += Expression.Call(bufferAccess, serialize, dataAccess);
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (_, _, bufferAccess) => 
@@ -117,9 +117,9 @@ namespace BinaryRecords.Providers
                 GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
                     blockBuilder += Expression.Call(bufferAccess, bufferWriterType.GetMethod("WriteUTF8String")!, dataAccess);
-                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
                     return blockBuilder;
                 },
                 GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
