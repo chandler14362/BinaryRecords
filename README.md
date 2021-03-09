@@ -32,6 +32,12 @@ Dev todo:
  - write my own code to compile expression to methodinfo, all the pieces are there in .net5, just hidden away (i think, gonna try)
 
 
+Spec is currently a todo, need to move this to its own file.
+
+BinaryRecords Specification
+---
+
+
 The BinaryRecords versioning architecture:
 
 ---
@@ -94,3 +100,9 @@ The serializable type will have to implement an interface exposing a byte[] to h
 And regardless of if the type is backwards compatible or not:
 
 reserialized data gets put back at full confidence so the next time its deserialized its ultra fast again.
+
+```
+BinaryRecords specification
+Last modified at 2021-03-08 12:51:00 +0500
+Chandler Stowell © 2021-03-08 8:24:00 +0500
+```
