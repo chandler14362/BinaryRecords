@@ -18,14 +18,7 @@ namespace BinaryRecords.Providers
         public static readonly IReadOnlyList<ExpressionGeneratorProvider> Builtin = new[] {CreateBuiltinProvider()};
 
         private static readonly Dictionary<Type, RecordConstructionRecord> RecordConstructionRecords = new();
-        
-        private record RecordConstructionRecord(
-            IReadOnlyList<(uint Key, PropertyInfo)> Properties,
-            ConstructorInfo ConstructorInfo)
-        {
-            public bool UsesMemberInit => ConstructorInfo.GetParameters().Length == 0;
-        }
-        
+
         private static bool IsInterested(Type type, ITypingLibrary typingLibrary)
         {
             if (!type.IsRecord())
@@ -135,7 +128,7 @@ namespace BinaryRecords.Providers
             int headerSize = 0;
             if (typeRecord.Versioned)
             {
-                // Calculate header size
+                // Calculate header size.
                 headerSize = 16 + sizeof(uint) + (typeRecord.Members.Count * sizeof(uint) * 2);
                 
                 // Since Expressions don't support stackalloc, we need to pool an array here. Oh well.
@@ -175,20 +168,12 @@ namespace BinaryRecords.Providers
             blockBuilder += Expression.IfThen(
                 Expression.Equal(dataAccess, Expression.Constant(null)),
                 Expression.Block(
-                        Expression.Call(
-                            bufferAccess, 
-                            typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
-                            Expression.Constant((byte)0)
-                            ),
+                        BufferWriterExpressions.WriteBool(bufferAccess, Expression.Constant(false)),
                         Expression.Return(endLabel)
-                        )
+                    )
                 );
-            
-            blockBuilder += Expression.Call(
-                bufferAccess, 
-                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
-                Expression.Constant((byte)1)
-                );
+
+            blockBuilder += BufferWriterExpressions.WriteBool(bufferAccess, Expression.Constant(true));
 
             var recordConstruction = RecordConstructionRecords[type];
             var (blittables, nonBlittables) = GetRecordPropertyLayout(typingLibrary, recordConstruction);
@@ -237,186 +222,148 @@ namespace BinaryRecords.Providers
             var typeRecord = typingLibrary.GetTypeRecord(type) as ConstructableTypeRecord;
             if (typeRecord == null) throw new Exception();
             var constructionRecord = RecordConstructionRecords[type];
-            throw new NotImplementedException();
+            return typeRecord.Versioned
+                ? GenerateVersionedDeserializedExpression(typingLibrary, typeRecord, constructionRecord, bufferAccess)
+                : GenerateSequentialDeserializeExpression(typingLibrary, constructionRecord, bufferAccess);
         }
 
-        private static Expression GenerateStandardDeserializeExpression(
+        private static Expression GenerateVersionedDeserializedExpression(
+            ITypingLibrary typingLibrary,
+            ConstructableTypeRecord typeRecord,
+            RecordConstructionRecord constructionRecord,
+            Expression bufferAccess)
+        {
+            var typeGuid = TypeRecordGuidProvider.ComputeGuid(typeRecord);
+            var blockBuilder = new ExpressionBlockBuilder();
+                
+            // Read in the guid
+            var serializedGuid = blockBuilder.CreateVariable<Guid>();
+            blockBuilder += Expression.Assign(
+                serializedGuid,
+                BufferReaderExpressions.ReadGuid(bufferAccess));
+
+            var returnLabel = Expression.Label(constructionRecord.Type);
+
+            // Check confidence 
+            blockBuilder += Expression.IfThenElse(
+                Expression.Equal(serializedGuid, Expression.Constant(typeGuid)),
+                Expression.Return(
+                    returnLabel, 
+                    GenerateConfidentDeserializeExpression(typingLibrary, constructionRecord, bufferAccess)),
+                Expression.Return(
+                    returnLabel,
+                    GenerateNonConfidentDeserializeExpression(typingLibrary, constructionRecord, bufferAccess))
+                );
+            return blockBuilder += Expression.Label(returnLabel, Expression.Constant(null, constructionRecord.Type));
+        }
+
+        private static Expression GenerateConfidentDeserializeExpression(
             ITypingLibrary typingLibrary,
             RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
-            throw new NotImplementedException();
+            var blockBuilder = new ExpressionBlockBuilder();
+            // Calculate the size of the header - guid so we can skip
+            var remainingHeaderSize = sizeof(uint) + (constructionRecord.Properties.Count * sizeof(uint) * 2);
+            blockBuilder += BufferReaderExpressions.SkipBytes(bufferAccess, Expression.Constant(remainingHeaderSize));
+            return blockBuilder += GenerateSequentialDeserializeExpression(typingLibrary, constructionRecord, bufferAccess);
         }
         
-        private static Expression GenerateFastDeserializeExpression(
-            ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
-        {
-            throw new NotImplementedException();
-        }
-
         private static Expression GenerateNonConfidentDeserializeExpression(
             ITypingLibrary typingLibrary,
             RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
-            throw new NotImplementedException();
-        }
-        
-        /*
-        private SerializeRecordDelegate GenerateSerializeDelegate(Type type)
-        {
+            // TODO
             var blockBuilder = new ExpressionBlockBuilder();
-            
-            // Declare parameters
-            var objParameter = Expression.Parameter(typeof(object), "obj");
-            var bufferParameter = Expression.Parameter(BufferWriterType, "buffer");
-            
-            var returnTarget = Expression.Label();
-
-            // Null check
-            blockBuilder += Expression.IfThen(
-                Expression.Equal(objParameter, Expression.Constant(null)),
-                Expression.Block(
-                        Expression.Call(
-                            bufferParameter, 
-                            typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
-                            Expression.Constant((byte)0)
-                            ),
-                        Expression.Return(returnTarget)
-                        )
-                );
-            
-            blockBuilder += Expression.Call(
-                bufferParameter, 
-                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
-                Expression.Constant((byte)1)
-                );
-
-            // Cast record type
-            var recordInstance = blockBuilder.CreateVariable(type);
-            blockBuilder += Expression.Assign(
-                recordInstance,
-                Expression.Convert(objParameter, type)
-                );
-
-            var model = _typingLibrary.GetRecordConstructionModel(type);
-            var (blittables, nonBlittables) = GetRecordPropertyLayout(model);
-            
-            blockBuilder = blittables.Aggregate(blockBuilder, 
-                (current, property) => 
-                    current + GenerateTypeSerializer(
-                        property.PropertyType, 
-                        Expression.Property(recordInstance, property), 
-                        bufferParameter));
-
-            // Now we serialize each non-blittable property
-            blockBuilder = nonBlittables.Aggregate(blockBuilder, 
-                (current, property) => 
-                    current + GenerateTypeSerializer(
-                        property.PropertyType, 
-                        Expression.Property(recordInstance, property), 
-                        bufferParameter));
-            
-            blockBuilder += Expression.Label(returnTarget);
-            
-            // Compile and return
-            var lambda = Expression.Lambda<SerializeRecordDelegate>(
-                blockBuilder, 
-                objParameter, bufferParameter
-            );
-            return lambda.Compile();
+            var endLabel = Expression.Label(constructionRecord.Type);
+            return blockBuilder += Expression.Constant(null, constructionRecord.Type);
         }
 
-        private DeserializeRecordDelegate GenerateDeserializeDelegate(Type type)
+        private static Expression GenerateSequentialDeserializeExpression(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord,
+            Expression bufferAccess)
         {
-            var model = _typingLibrary.GetRecordConstructionModel(type);
-            var bufferAccess = Expression.Parameter(BufferReaderType, "buffer");
-
             var blockBuilder = new ExpressionBlockBuilder();
-            var returnTarget = Expression.Label(typeof(object));
+            var endLabel = Expression.Label(constructionRecord.Type);
             
             // Null check
             blockBuilder += Expression.IfThen(
                 Expression.Equal(
-                    Expression.Call(
-                        bufferAccess, 
-                        typeof(SpanBufferReader).GetMethod("ReadUInt8")!
-                        ), 
-                    Expression.Constant((byte)0)
-                    ),
-                Expression.Return(returnTarget, Expression.Constant(null, typeof(object)))
+                    BufferReaderExpressions.ReadBool(bufferAccess),
+                    Expression.Constant(false)
+                ),
+                Expression.Return(endLabel, Expression.Constant(null, constructionRecord.Type))
             );
             
 #if NET5_0
-            var blockExpression = BitConverter.IsLittleEndian && IsBlittableOptimizationCandidate(model)
-                ? GenerateFastRecordDeserializer(model, bufferAccess)
-                : GenerateStandardRecordDeserializer(model, bufferAccess);
+            var blockExpression = BitConverter.IsLittleEndian && IsBlittableOptimizationCandidate(typingLibrary, constructionRecord)
+                ? GenerateFastRecordDeserializer(typingLibrary, constructionRecord, bufferAccess)
+                : GenerateStandardRecordDeserializer(typingLibrary, constructionRecord, bufferAccess);
 #else
-            var blockExpression = GenerateStandardRecordDeserializer(model, bufferAccess);
+            var blockExpression = GenerateStandardRecordDeserializer(typingLibrary, constructionRecord, bufferAccess);
 #endif
-            blockBuilder += Expression.Label(returnTarget, blockExpression);
-
-            var lambda = Expression.Lambda<DeserializeRecordDelegate>(
-                blockBuilder,
-                bufferAccess
-            );
-            return lambda.Compile();
+            blockBuilder += Expression.Label(endLabel, blockExpression);
+            return blockBuilder;
         }
 
-        private static BlockExpression GenerateStandardRecordDeserializer(RecordConstructionModel model,
+        private static BlockExpression GenerateStandardRecordDeserializer(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
             var propertyLookup = new Dictionary<PropertyInfo, ParameterExpression>();
             var blockBuilder = new ExpressionBlockBuilder();
 
-            var (blittable, nonBlittable) = GetRecordPropertyLayout(model);
-            foreach (var property in blittable.Concat(nonBlittable))
+            var (blittable, nonBlittable) = GetRecordPropertyLayout(typingLibrary, constructionRecord);
+            foreach (var (_, property) in blittable.Concat(nonBlittable))
             {
                 var variable = propertyLookup[property] 
                     = blockBuilder.CreateVariable(property.PropertyType);
                 blockBuilder += Expression.Assign(variable, 
-                    GenerateTypeDeserializer(property.PropertyType, bufferAccess));
+                    typingLibrary.GenerateDeserializeExpression(property.PropertyType, bufferAccess));
             }
-        
-            var returnTarget = Expression.Label(model.type);
-            Expression result = !model.UsesMemberInit
-                ? Expression.New(model.Constructor, 
-                    model.Properties.Select(p => propertyLookup[p]), model.Properties) 
-                : Expression.MemberInit(Expression.New(model.Constructor),
-                    model.Properties.Select(p => Expression.Bind(p, propertyLookup[p])));
-            blockBuilder += Expression.Label(returnTarget, result);
-            return blockBuilder;
+            
+            return blockBuilder += !constructionRecord.UsesMemberInit
+                ? Expression.New(
+                    constructionRecord.ConstructorInfo, 
+                    constructionRecord.Properties.Select(p => propertyLookup[p.Property]), 
+                    constructionRecord.Properties.Select(p => p.Property)) 
+                : Expression.MemberInit(
+                    Expression.New(constructionRecord.ConstructorInfo),
+                    constructionRecord.Properties.Select(p => Expression.Bind(p.Property, propertyLookup[p.Property])));
         }
-
+        
 #if NET5_0
-        private static BlockExpression GenerateFastConfidentRecordDeserializer(
-            RecordConstructionModel model,
+        private static BlockExpression GenerateFastRecordDeserializer(
+            ITypingLibrary typingLibrary,
+            RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
             var blockBuilder = new ExpressionBlockBuilder();
 
-            var (blittables, nonBlittables) = GetRecordPropertyLayout(model);
-            var blittableTypes = blittables.Select(p => p.PropertyType).ToArray();
+            var (blittables, nonBlittables) = GetRecordPropertyLayout(typingLibrary, constructionRecord);
+            var blittableTypes = blittables.Select(p => p.Property.PropertyType).ToArray();
+            var nonBlittableProperties = nonBlittables.Select(p => p.Property).ToArray();
             
             var blockType = BlittableBlockTypeProvider.GetBlittableBlock(blittableTypes);
             var readBlockMethod = typeof(BufferExtensions).GetMethod("ReadBlittableBytes")!.MakeGenericMethod(blockType);
 
             var constructRecordMethod =
-                FastRecordInstantiationMethodProvider.GetFastRecordInstantiationMethod(model, blockType, nonBlittables);
+                FastRecordInstantiationMethodProvider.GetFastRecordInstantiationMethod(constructionRecord, blockType, nonBlittableProperties);
 
             // Deserialize non blittable properties in to arguments list
             var arguments = new List<Expression> {Expression.Call(readBlockMethod, bufferAccess)};
-            var nonBlittableTypes = nonBlittables.Select(p => p.PropertyType);
-            arguments.AddRange(nonBlittableTypes.Select(t => GenerateTypeDeserializer(t, bufferAccess)));
-           
-            var returnTarget = Expression.Label(model.type);
-            return blockBuilder += Expression.Label(returnTarget, Expression.Call(constructRecordMethod, arguments));
+
+            // TODO: Call the MethodInfo backing our generated Delegates from within the IL so we can stop abusing the stackframe here.
+            arguments.AddRange(nonBlittableProperties.Select(
+                p => typingLibrary.GenerateDeserializeExpression(p.PropertyType, bufferAccess)));
+            
+            return blockBuilder += Expression.Call(constructRecordMethod, arguments);
         }
 #endif
-*/
-
+        
         private static ((uint Key, PropertyInfo Property)[] Blittables, (uint Key, PropertyInfo Property)[] NonBlittables) GetRecordPropertyLayout(
             ITypingLibrary typingLibrary,
             RecordConstructionRecord constructionRecord)

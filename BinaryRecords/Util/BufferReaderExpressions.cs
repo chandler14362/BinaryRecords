@@ -17,5 +17,11 @@ namespace BinaryRecords.Util
             Expression.Call(
                 bufferAccess,
                 SpanBufferReaderType.GetMethod("ReadGuid")!);
+
+        public static Expression SkipBytes(Expression bufferAccess, Expression count) =>
+            Expression.Call(
+                bufferAccess,
+                SpanBufferReaderType.GetMethod("SkipBytes")!,
+                count);
     }
 }

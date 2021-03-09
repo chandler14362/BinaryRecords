@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
-using BinaryRecords.Util;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
@@ -33,15 +32,12 @@ namespace BinaryRecords.Providers
         {
             if (CachedDeserializeDelegates.TryGetValue(type, out var cachedDelegate))
                 return cachedDelegate;
-
             var bufferAccess = Expression.Parameter(typeof(SpanBufferReader).MakeByRefType(), "buffer");
-            
-            var blockBuilder = new ExpressionBlockBuilder();
-            var returnTarget = Expression.Label(type);
-            blockBuilder += Expression.Return(returnTarget, typingLibrary.GenerateDeserializeExpression(type, bufferAccess));
-
             var delegateType = typeof(GenericDeserializeDelegate<>).MakeGenericType(type);
-            var lambda = Expression.Lambda(delegateType, blockBuilder, bufferAccess);
+            var lambda = Expression.Lambda(
+                delegateType, 
+                typingLibrary.GenerateDeserializeExpression(type, bufferAccess), 
+                bufferAccess);
             return CachedDeserializeDelegates[type] = lambda.Compile();
         }
     }
