@@ -24,7 +24,7 @@ namespace BinaryRecords.Providers
             var delegateType = typeof(GenericSerializeDelegate<>).MakeGenericType(type);
             var lambda = Expression.Lambda(
                 delegateType, 
-                typingLibrary.GenerateSerializeExpression(type, dataAccess, bufferAccess), 
+                typingLibrary.GenerateSerializeExpression(type, dataAccess, bufferAccess, null), 
                 dataAccess, bufferAccess);
             return CachedSerializeDelegates[type] = lambda.Compile();
         }

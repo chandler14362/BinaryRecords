@@ -7,17 +7,27 @@ namespace BinaryRecords.Extensions
 {
     public static class BufferExtensions
     {
-        public static void WriteUInt16Bookmark(ref this SpanBufferWriter buffer,
-            in SpanBufferWriter.Bookmark bookmark, ushort value)
-        {
+        public static void WriteUInt16Bookmark(
+            ref this SpanBufferWriter buffer,
+            in SpanBufferWriter.Bookmark bookmark, 
+            ushort value) =>
             buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt16LittleEndian);
-        }
-        
-        public static unsafe ReadOnlySpan<byte> ReadBlittableBytes<T>(ref this SpanBufferReader buffer) where T : unmanaged
-        {
-            var size = sizeof(T);
-            return buffer.ReadBytes(size);
-        }
+
+        public static void WriteUInt32Bookmark(
+            ref this SpanBufferWriter buffer,
+            in SpanBufferWriter.Bookmark bookmark, 
+            uint value) =>
+            buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt32LittleEndian);
+
+        public static void WriteUInt64Bookmark(
+            ref this SpanBufferWriter buffer,
+            in SpanBufferWriter.Bookmark bookmark,
+            ulong value) =>
+            buffer.WriteBookmark(bookmark, value, BinaryPrimitives.WriteUInt64LittleEndian);
+
+        public static unsafe ReadOnlySpan<byte> ReadBlittableBytes<T>(ref this SpanBufferReader buffer) 
+            where T : unmanaged =>
+            buffer.ReadBytes(sizeof(T));
 
         public static void WriteDateTime(ref this SpanBufferWriter buffer, DateTime dateTime)
         {

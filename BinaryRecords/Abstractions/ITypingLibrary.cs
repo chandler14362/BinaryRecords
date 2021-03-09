@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 using BinaryRecords.Delegates;
 using BinaryRecords.Providers;
 using BinaryRecords.Records;
+using BinaryRecords.Util;
 
 namespace BinaryRecords.Abstractions
 {
@@ -22,7 +23,11 @@ namespace BinaryRecords.Abstractions
         bool IsTypeSerializable(Type type);
         bool IsTypeBlittable(Type type);
 
-        Expression GenerateSerializeExpression(Type type, Expression dataAccess, Expression bufferAccess);
+        Expression GenerateSerializeExpression(
+            Type type, 
+            Expression dataAccess, 
+            Expression bufferAccess, 
+            AutoVersioning? autoVersioning);
         Delegate GetSerializeDelegate(Type type);
 
         Expression GenerateDeserializeExpression(Type type, Expression bufferAccess);

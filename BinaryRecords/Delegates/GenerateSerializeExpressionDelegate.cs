@@ -1,6 +1,7 @@
 using System;
 using System.Linq.Expressions;
 using BinaryRecords.Abstractions;
+using BinaryRecords.Util;
 
 namespace BinaryRecords.Delegates
 {
@@ -8,5 +9,6 @@ namespace BinaryRecords.Delegates
         ITypingLibrary typingLibrary, 
         Type type, 
         Expression dataAccess, 
-        Expression bufferAccess);
+        Expression bufferAccess,
+        AutoVersioning? autoVersioning);
 }

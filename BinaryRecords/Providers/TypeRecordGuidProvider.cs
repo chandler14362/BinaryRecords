@@ -9,11 +9,11 @@ namespace BinaryRecords.Providers
 {
     public static class TypeRecordGuidProvider
     {
-        private static readonly Dictionary<TypeRecord, Guid> _cachedGuids = new();
+        private static readonly Dictionary<TypeRecord, Guid> CachedGuids = new();
         
         public static Guid ComputeGuid(TypeRecord typeRecord)
         {
-            if (_cachedGuids.TryGetValue(typeRecord, out var guid))
+            if (CachedGuids.TryGetValue(typeRecord, out var guid))
                 return guid;
             var constructableHashTracker = new ConstructableHashTracker();
             var bufferWriter = new SpanBufferWriter(stackalloc byte[1024]);
@@ -21,7 +21,7 @@ namespace BinaryRecords.Providers
             Span<byte> md5Bytes = stackalloc byte[16];
             if (!MD5.TryHashData(bufferWriter.Data, md5Bytes, out _))
                 throw new Exception("Error calculating type record md5 hash");
-            return _cachedGuids[typeRecord] = new Guid(md5Bytes);
+            return CachedGuids[typeRecord] = new Guid(md5Bytes);
         }
     }
 }

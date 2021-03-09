@@ -11,7 +11,7 @@ namespace BinaryRecords.Providers
 {
     public static class FastRecordInstantiationMethodProvider
     {
-        private static Dictionary<Type, MethodInfo> _cachedMethods = new();
+        private static readonly Dictionary<Type, MethodInfo> CachedMethods = new();
         
         private static string FastInstantiationMethodName(Type type) => $"{type.Name}FastInstantiation";
 
@@ -106,8 +106,8 @@ namespace BinaryRecords.Providers
         public static MethodInfo GetFastRecordInstantiationMethod(RecordConstructionModel model, Type blockType,
             PropertyInfo[] nonBlittableArguments)
         {
-            if (_cachedMethods.TryGetValue(model.type, out var method)) return method;
-            return _cachedMethods[model.type] = !model.UsesMemberInit
+            if (CachedMethods.TryGetValue(model.type, out var method)) return method;
+            return CachedMethods[model.type] = !model.UsesMemberInit
                 ? GenerateFastRecordConstructionMethod(model, blockType, nonBlittableArguments)
                 : GenerateFastRecordMemberInitMethod(model, blockType, nonBlittableArguments);
         }

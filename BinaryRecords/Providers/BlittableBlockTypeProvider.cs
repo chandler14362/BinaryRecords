@@ -11,12 +11,12 @@ namespace BinaryRecords.Providers
 {
     public static class BlittableBlockTypeProvider
     {
-        private static readonly Dictionary<string, Type> _blittableBlockCache = new();
+        private static readonly Dictionary<string, Type> BlittableBlockCache = new();
 
-        private static readonly AssemblyBuilder _assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
+        private static readonly AssemblyBuilder AssemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
             new AssemblyName("BinaryRecords.Dynamic.BlittableBlocks"), AssemblyBuilderAccess.Run);
 
-        private static readonly ModuleBuilder _moduleBuilder = _assemblyBuilder.DefineDynamicModule("BlittableBlocks");
+        private static readonly ModuleBuilder ModuleBuilder = AssemblyBuilder.DefineDynamicModule("BlittableBlocks");
         
         private static string GenerateNameFromTypes(IEnumerable<Type> types) => 
             $"{string.Join("", types.Select(t => t.Name))}Block";
@@ -27,7 +27,7 @@ namespace BinaryRecords.Providers
             var typeSize = types.Sum(t => t.GetTypeValueSize());
 
             var typeName = name ?? GenerateNameFromTypes(types);
-            var typeBuilder = _moduleBuilder.DefineType(typeName,
+            var typeBuilder = ModuleBuilder.DefineType(typeName,
                 TypeAttributes.Public | TypeAttributes.ExplicitLayout | TypeAttributes.Sealed |
                 TypeAttributes.BeforeFieldInit,
                 typeof(ValueType), typeSize);
@@ -51,9 +51,9 @@ namespace BinaryRecords.Providers
         public static Type GetBlittableBlock(Type[] types)
         {
             var typeName = GenerateNameFromTypes(types);
-            if (_blittableBlockCache.TryGetValue(typeName, out var generatedType)) 
+            if (BlittableBlockCache.TryGetValue(typeName, out var generatedType)) 
                 return generatedType;
-            return _blittableBlockCache[typeName] = GenerateBlittableBlockType(types, typeName);
+            return BlittableBlockCache[typeName] = GenerateBlittableBlockType(types, typeName);
         }
     }
 }

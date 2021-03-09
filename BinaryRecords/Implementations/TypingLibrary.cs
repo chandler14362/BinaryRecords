@@ -4,7 +4,6 @@ using System.Linq.Expressions;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
 using BinaryRecords.Extensions;
-using BinaryRecords.Models;
 using BinaryRecords.Providers;
 using BinaryRecords.Records;
 using BinaryRecords.Util;
@@ -14,12 +13,9 @@ namespace BinaryRecords.Implementations
     public sealed class TypingLibrary : ITypingLibrary
     {
         private readonly List<ExpressionGeneratorProvider> _expressionGeneratorProviders = new();
-        private readonly Dictionary<Type, RecordConstructionModel> _recordConstructionModels = new();
         private readonly Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
         private readonly Dictionary<Type, TypeRecord> _typeRecords = new();
-        private readonly Dictionary<string, ConstructableTypeRecord> _aliasToConstructable = new();
-        private uint _lastExtensionId = 0;
-        
+
         public void AddGeneratorProvider<T>(
             GenericSerializeDelegate<T> serializerDelegate, 
             GenericDeserializeDelegate<T> deserializerDelegate,
@@ -31,11 +27,18 @@ namespace BinaryRecords.Implementations
                 Name: name,
                 Priority: priority,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess) => 
-                    Expression.Invoke(Expression.Constant(serializerDelegate), bufferAccess, dataAccess),
+                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
+                {
+                    var blockBuilder = new ExpressionBlockBuilder();
+                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    blockBuilder += Expression.Invoke(
+                        Expression.Constant(serializerDelegate), bufferAccess, dataAccess);
+                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    return blockBuilder;
+                },
                 GenerateDeserializeExpression: (_, _, bufferAccess) => 
                     Expression.Invoke(Expression.Constant(deserializerDelegate), bufferAccess),
-                GenerateTypeRecord: (type, typingLibrary) => new ExtensionTypeRecord(_lastExtensionId++));
+                GenerateTypeRecord: (_, _) => new ExtensionTypeRecord());
             _expressionGeneratorProviders.Add(provider);
         }
 
@@ -58,13 +61,7 @@ namespace BinaryRecords.Implementations
             var provider = GetInterestedGeneratorProvider(type);
             if (provider is null)
                 ThrowHelpers.ThrowNoInterestedProvider(type);
-            typeRecord = _typeRecords[type] = provider!.GenerateTypeRecord(type, this);
-            
-            // If it's a constructable keep track of the alias
-            if (typeRecord is ConstructableTypeRecord constructable)
-                _aliasToConstructable[constructable.Alias] = constructable;
-            
-            return typeRecord;
+            return _typeRecords[type] = provider!.GenerateTypeRecord(type, this);;
         }
 
         public bool IsTypeSerializable(Type type) =>
@@ -74,12 +71,16 @@ namespace BinaryRecords.Implementations
             _expressionGeneratorProviders.TryGetInterestedProvider(type, this, out var provider) && 
             provider is BlittableExpressionGeneratorProvider;
 
-        public Expression GenerateSerializeExpression(Type type, Expression dataAccess, Expression bufferAccess)
+        public Expression GenerateSerializeExpression(
+            Type type, 
+            Expression dataAccess, 
+            Expression bufferAccess, 
+            AutoVersioning? autoVersioning)
         {
             var provider = GetInterestedGeneratorProvider(type);
             if (provider == null)
                 ThrowHelpers.ThrowNoInterestedProvider(type);
-            return provider!.GenerateSerializeExpression(this, type, dataAccess, bufferAccess);
+            return provider!.GenerateSerializeExpression(this, type, dataAccess, bufferAccess, autoVersioning);
         }
 
         public Delegate GetSerializeDelegate(Type type) =>
@@ -95,9 +96,6 @@ namespace BinaryRecords.Implementations
 
         public Delegate GetDeserializeDelegate(Type type) =>
             ExpressionGeneratorDelegateProvider.CreateDeserializeDelegate(type, this);
-        
-        public IEnumerable<RecordConstructionModel> GetRecordConstructionModels() =>
-            _recordConstructionModels.Values;
 
         public IReadOnlyList<ExpressionGeneratorProvider> GetExpressionGeneratorProviders() =>
             _expressionGeneratorProviders;

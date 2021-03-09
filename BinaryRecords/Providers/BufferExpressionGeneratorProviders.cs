@@ -4,13 +4,14 @@ using System.Linq.Expressions;
 using System.Reflection;
 using BinaryRecords.Enums;
 using BinaryRecords.Records;
+using BinaryRecords.Util;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
     public static class BufferExpressionGeneratorProviders
     {
-        public static IReadOnlyList<ExpressionGeneratorProvider> Builtin = CreateBuiltinProviders().ToList();
+        public static readonly IReadOnlyList<ExpressionGeneratorProvider> Builtin = CreateBuiltinProviders().ToList();
 
         private static BlittableExpressionGeneratorProvider CreateBlittableBufferProvider<T>(
             MethodInfo serialize, 
@@ -21,8 +22,14 @@ namespace BinaryRecords.Providers
                 Name: $"{typeof(T)}BlittableBufferProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess) => 
-                    Expression.Call(bufferAccess, serialize, dataAccess),
+                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
+                {
+                    var blockBuilder = new ExpressionBlockBuilder();
+                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    blockBuilder += Expression.Call(bufferAccess, serialize, dataAccess);
+                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    return blockBuilder;
+                },
                 GenerateDeserializeExpression: (_, _, bufferAccess) => 
                     Expression.Call(bufferAccess, deserialize),
                 GenerateTypeRecord: (_, _) => new PrimitiveTypeRecord(serializableDataType)
@@ -107,9 +114,15 @@ namespace BinaryRecords.Providers
                 Name: "StringProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(string),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess) => 
-                    Expression.Call(bufferAccess, bufferWriterType.GetMethod("WriteUTF8String")!, dataAccess),
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) => 
+                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                {
+                    var blockBuilder = new ExpressionBlockBuilder();
+                    autoVersioning?.StartVersioning(blockBuilder, bufferAccess);
+                    blockBuilder += Expression.Call(bufferAccess, bufferWriterType.GetMethod("WriteUTF8String")!, dataAccess);
+                    autoVersioning?.EndVersioning(blockBuilder, bufferAccess);
+                    return blockBuilder;
+                },
+                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
                     Expression.Call(bufferAccess, bufferReaderType.GetMethod("ReadUTF8String")!),
                 GenerateTypeRecord: (_, typingLibrary) => new ListTypeRecord(typingLibrary.GetTypeRecord(typeof(byte)))
             );
