@@ -29,8 +29,6 @@ Dev todo:
  
  - Support record inheritance (memberinit might be only non working)
  - Class and struct support
- - write my own code to compile expression to methodinfo, all the pieces are there in .net5, just hidden away (i think, gonna try)
-
 
 Spec is currently a todo, need to move this to its own file.
 

@@ -1,13 +1,16 @@
 using BinaryRecords.Enums;
+using BinaryRecords.Util;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Records
 {
-    public record ExtensionTypeRecord(uint ExtensionId) : TypeRecord(SerializableDataTypes.Extension)
+    public record ExtensionTypeRecord() 
+        : TypeRecord(SerializableDataTypes.Extension)
     {
-        protected override void DoHash(ref SpanBufferWriter bufferWriter)
+        protected override void DoHash(
+            ref SpanBufferWriter bufferWriter, 
+            ConstructableHashTracker constructableHashTracker)
         {
-            bufferWriter.WriteUInt32(ExtensionId);
         }
     }
 }
