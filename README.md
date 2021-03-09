@@ -103,6 +103,6 @@ reserialized data gets put back at full confidence so the next time its deserial
 
 ```
 BinaryRecords specification
-Last modified at 2021-03-08 12:51:00 +0500
-Chandler Stowell © 2021-03-08 8:24:00 +0500
+Last modified at 2021-03-08 12:51:00 -0500
+Chandler Stowell © 2021-03-08 8:24:00 -0500
 ```
