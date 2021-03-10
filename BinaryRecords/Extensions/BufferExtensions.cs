@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using BinaryRecords.Util;
 using Krypton.Buffers;
 
 namespace BinaryRecords.Extensions
@@ -40,7 +41,16 @@ namespace BinaryRecords.Extensions
             buffer.WriteBookmark(bookmark, (Array: array, Size: size), (span, state) =>
                 state.Array.AsSpan(0, size).CopyTo(span)
             );
+
+        public static readonly MethodInfo ReadAndCopyUInt32SliceMethod =
+            BufferExtensionsType.GetMethod("ReadAndCopyUInt32Slice")!;
         
+        public static void ReadAndCopyUInt32Slice(
+            ref this SpanBufferReader buffer,
+            uint[] array,
+            int count) =>
+            buffer.ReadUInt32Slice(count).CopyTo(array);
+
         public static unsafe ReadOnlySpan<byte> ReadBlittableBytes<T>(ref this SpanBufferReader buffer) 
             where T : unmanaged =>
             buffer.ReadBytes(sizeof(T));

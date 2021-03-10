@@ -12,6 +12,11 @@ namespace BinaryRecords.Util
             Expression.Call(
                 bufferAccess,
                 SpanBufferReaderType.GetMethod("ReadBool")!);
+
+        public static Expression ReadUInt32(Expression bufferAccess) =>
+            Expression.Call(
+                bufferAccess,
+                SpanBufferReaderType.GetMethod("ReadUInt32")!);
         
         public static Expression ReadGuid(Expression bufferAccess) =>
             Expression.Call(

@@ -134,7 +134,9 @@ namespace BinaryRecords.Providers
                 // Since Expressions don't support stackalloc, we need to pool an array here. Oh well.
                 // Not the end of the world
                 rentedHeaderArray = blockBuilder.CreateVariable<byte[]>();
-                blockBuilder += Expression.Assign(rentedHeaderArray, ByteArrayPoolExpressions.Rent(headerSize));
+                blockBuilder += Expression.Assign(
+                    rentedHeaderArray, 
+                    ArrayPoolExpressions<byte>.Rent(Expression.Constant(headerSize)));
 
                 // Build the header writer
                 headerWriter = blockBuilder.CreateVariable(typeof(SpanBufferWriter));
@@ -208,7 +210,7 @@ namespace BinaryRecords.Providers
                     headerBookmark!,
                     rentedHeaderArray!,
                     Expression.Constant(headerSize));
-                blockBuilder += ByteArrayPoolExpressions.Return(rentedHeaderArray!);
+                blockBuilder += ArrayPoolExpressions<byte>.Return(rentedHeaderArray!);
             }
 
             return blockBuilder;
@@ -244,6 +246,7 @@ namespace BinaryRecords.Providers
 
             var returnLabel = Expression.Label(constructionRecord.Type);
 
+            // TODO: It's probably worth generating methods to handle the two different code paths here
             // Check confidence 
             blockBuilder += Expression.IfThenElse(
                 Expression.Equal(serializedGuid, Expression.Constant(typeGuid)),
@@ -263,7 +266,7 @@ namespace BinaryRecords.Providers
             Expression bufferAccess)
         {
             var blockBuilder = new ExpressionBlockBuilder();
-            // Calculate the size of the header - guid so we can skip
+            // Calculate the size of the header without the guid so we can skip
             var remainingHeaderSize = sizeof(uint) + (constructionRecord.Properties.Count * sizeof(uint) * 2);
             blockBuilder += BufferReaderExpressions.SkipBytes(bufferAccess, Expression.Constant(remainingHeaderSize));
             return blockBuilder += GenerateSequentialDeserializeExpression(typingLibrary, constructionRecord, bufferAccess);
@@ -274,12 +277,140 @@ namespace BinaryRecords.Providers
             RecordConstructionRecord constructionRecord,
             Expression bufferAccess)
         {
-            // TODO
             var blockBuilder = new ExpressionBlockBuilder();
+
+            // Create every possible property with default values
+            var propertyVariables = constructionRecord.Properties.Select(
+                p => blockBuilder.CreateVariable(p.Property.PropertyType, p.Property.Name)).ToArray();
+            for (var i = 0; i < constructionRecord.Properties.Count; i++)
+                blockBuilder += Expression.Assign(
+                    propertyVariables[i],
+                    Expression.Default(constructionRecord.Properties[i].Property.PropertyType));
+
+            // Read in the key count
+            var keyCount = blockBuilder.CreateVariable<uint>();
+            blockBuilder += Expression.Assign(
+                keyCount, 
+                BufferReaderExpressions.ReadUInt32(bufferAccess));
+
+            var keysAndSizesCount = blockBuilder.CreateVariable<int>();
+            blockBuilder += Expression.Assign(
+                keysAndSizesCount, 
+                Expression.Convert(
+                    Expression.Multiply(keyCount, Expression.Constant((uint)2)),
+                    typeof(int))
+                );
+            
+            // TODO: I really want to use stackalloc for this, but right now I have to use ArrayPool again.
+            //       It might be worth rewriting this portion of the code using ILEmit but for now this works.
+            // I want to do this for if some sort of streaming or sequencing is ever implemented in to the buffers
+            var keysAndSizes = blockBuilder.CreateVariable<uint[]>();
+            blockBuilder += Expression.Assign(
+                keysAndSizes,
+                ArrayPoolExpressions<uint>.Rent(keysAndSizesCount)
+                );
+            
+            // Now read in the keysAndSizes and copy them over
+            blockBuilder += Expression.Call(
+                BufferExtensions.ReadAndCopyUInt32SliceMethod,
+                bufferAccess,
+                keysAndSizes,
+                keysAndSizesCount);
+
             var endLabel = Expression.Label(constructionRecord.Type);
-            return blockBuilder += Expression.Constant(null, constructionRecord.Type);
+            
+            // Null check
+            blockBuilder += Expression.IfThen(
+                Expression.Equal(
+                    BufferReaderExpressions.ReadBool(bufferAccess),
+                    Expression.Constant(false)
+                ),
+                Expression.Return(endLabel, Expression.Constant(null, constructionRecord.Type))
+            );
+
+            // Now we can loop through each key we hold
+            var loopExit = Expression.Label();
+            var keysAndSizesIndex = blockBuilder.CreateVariable<int>("keysAndSizesIndex");
+            blockBuilder += Expression.Assign(keysAndSizesIndex, Expression.Default(typeof(int)));
+            blockBuilder += Expression.Loop(
+                Expression.IfThenElse(
+                    Expression.LessThan(keysAndSizesIndex, keysAndSizesCount),
+                    Expression.Block(
+                        GenerateNonConfidentDataSwitchExpression(
+                            typingLibrary, 
+                            keysAndSizes,
+                            keysAndSizesIndex,
+                            propertyVariables, 
+                            constructionRecord,
+                            bufferAccess),
+                        Expression.AddAssign(keysAndSizesIndex, Expression.Constant(2))),
+                    Expression.Break(loopExit)
+                    ),
+                loopExit
+            );
+            
+            // Now we can construct the type using all of the variables we have prepped
+            var constructedRecord = blockBuilder.CreateVariable(constructionRecord.Type);
+            Expression recordConstructor = !constructionRecord.UsesMemberInit
+                ? Expression.New(
+                    constructionRecord.ConstructorInfo, 
+                    constructionRecord.Properties.Select((_, i) => propertyVariables[i]), 
+                    constructionRecord.Properties.Select(p => p.Property)) 
+                : Expression.MemberInit(
+                    Expression.New(constructionRecord.ConstructorInfo),
+                    constructionRecord.Properties.Select((p, i) => 
+                        Expression.Bind(p.Property, propertyVariables[i])));
+            blockBuilder += Expression.Assign(constructedRecord, recordConstructor);
+
+            // Free our pooled array
+            blockBuilder += ArrayPoolExpressions<uint>.Return(keysAndSizes);
+            return blockBuilder += Expression.Label(endLabel, constructedRecord);
         }
 
+        private static Expression GenerateNonConfidentDataSwitchExpression(
+            ITypingLibrary typingLibrary,
+            Expression keysAndSizes,
+            Expression keysAndSizesIndex,
+            ParameterExpression[] variables,
+            RecordConstructionRecord constructionRecord,
+            Expression bufferAccess)
+        {
+            var blockBuilder = new ExpressionBlockBuilder();
+            var switchBreak = Expression.Label();
+            
+            // Load current key
+            var currentKey = blockBuilder.CreateVariable<uint>();
+            blockBuilder += Expression.Assign(
+                currentKey, 
+                Expression.ArrayIndex(keysAndSizes, keysAndSizesIndex));
+            
+            // Load current size
+            var currentSize = blockBuilder.CreateVariable<uint>();
+            blockBuilder += Expression.Assign(
+                currentSize,
+                Expression.ArrayIndex(
+                    keysAndSizes, 
+                    Expression.Add(keysAndSizesIndex, Expression.Constant(1))));
+            
+            // Now generate an if then for each possible key we can handle
+            for (var i = 0; i < constructionRecord.Properties.Count; i++)
+            {
+                var applicableVariable = variables[i];
+                var (neededKey, property) = constructionRecord.Properties[i];
+                blockBuilder += Expression.IfThen(
+                    Expression.Equal(currentKey, Expression.Constant(neededKey)),
+                        Expression.Block(
+                            Expression.Assign(
+                                applicableVariable, 
+                                typingLibrary.GenerateDeserializeExpression(property.PropertyType, bufferAccess)),
+                            Expression.Goto(switchBreak)));
+            }
+            
+            // If we got here it means it's a key we can't handle. Do a data skip
+            blockBuilder += BufferReaderExpressions.SkipBytes(bufferAccess, Expression.Convert(currentSize, typeof(int)));
+            return blockBuilder += Expression.Label(switchBreak); 
+        }
+        
         private static Expression GenerateSequentialDeserializeExpression(
             ITypingLibrary typingLibrary,
             RecordConstructionRecord constructionRecord,
