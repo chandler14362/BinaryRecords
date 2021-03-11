@@ -57,7 +57,7 @@ The versioning architecture is being written to support backwards compatibility 
 Backwards compatibility is something some people care about so I think it's worth jotting down just for the future.
 The backwards compatibility is first iteration, it can probably be optimized.
 
-Current design limitations: Field count is capped at 65,535. I think this pretty fair. Yes, it's not very future proof. I have never worked in the industry before so I hold a bit of ignornance. If someone can give me a reason why it should be increased I will gladly change it. Max field size is capped at 9,223,372 terabytes, I think this is beyond fair.
+Current design limitations: Field count is capped at 65,535. I think this pretty fair. Yes, it's not very future proof. I have never worked in the industry before so I hold a bit of ignornance. If someone can give me a reason why it should be increased I will gladly change it. Max field size is capped at 18,446,744 terabytes, I think this is beyond fair.
 
 Current plans for the versioning architecture:
 
@@ -117,6 +117,10 @@ reserialized data gets put back at full confidence so the next time its deserial
 
 ```
 BinaryRecords specification
-Last modified at 2021-03-10 14:23:12 -0500
+Last modified at 2021-03-11 00:15:05 -0500
 Chandler Stowell © 2021-03-08 8:24:00 -0500
 ```
+
+Acknowledgements
+---
+I would like to thank my good friend Caleb Pina for his initial discussions with me on an extensible serialization library for the C# 9 record types. His encouragement led me to continue my work on BinaryRecords.
