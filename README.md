@@ -1,6 +1,7 @@
 # BinaryRecords
 
-WIP C# serialization library with ultra-fast type-semantic free versioning. The versioning is completelty optional., with planned optional backwards compatibility too. Currently the only constructable types are records. It requires no attributes or registering of types. Registering your own serialize/deserialize functions is supported.
+WIP C# serialization library with ultra-fast type-semantic free versioning that allows for deterministic and non-deterministic deserialization paths. 
+The versioning is completely optional, with planned optional backwards compatibility too. Currently the only constructable types are records. It requires no attributes or registering of types. Registering your own serialize/deserialize functions is supported.
 
 Quick example:
 
@@ -31,8 +32,8 @@ Dev todo:
  
  - Support record inheritance (memberinit might be only non working)
  - Class and struct support
- - Ovehaul the internal buffer implementations, remove Krypton.Buffers dependency.
- - Toggable byte-order
+ - Overhaul the internal buffer implementations, remove Krypton.Buffers dependency.
+ - Toggleable byte-order
  - Design a friendly api that lets you move the data between two different BinaryRecords serialization models, for example, you could have one for serializing LE and then one for BE. Both being able to execute completely separate from eachother. This would allow each one to plug in their own extensions to handle data differently too.
  - Redesign the version hash, current implementation was written with the old type model design in mind. Now the only data needed to determine the hash are the keys the type holds. It can probably get more compact than a guid without comprimising too much uniqueness. 
 
@@ -41,13 +42,13 @@ Spec is currently a todo, need to move this to its own file.
 BinaryRecords Specification
 ---
 
-The design phisolphoy:
+The design philosophy:
 
 BinaryRecords is designed to be maximum-performance. There will never be an attempt to compact the data. All the internal type implementations will forever be raw.
 The data BinaryRecords produces is completely type-semantic free. This allows for endless, care-free, extensibility.
 It is very easy to write extensions, you can override any builtin type.
 
-I believe serialization and the ever evolving compression algorthims should work side by side. As compression evolves, BinaryRecords will become more compact.
+I believe serialization and the ever evolving compression algorithms should work side by side. As compression evolves, BinaryRecords will become more compact.
 
 The BinaryRecords versioning architecture:
 
@@ -57,11 +58,11 @@ The versioning architecture is being written to support backwards compatibility 
 Backwards compatibility is something some people care about so I think it's worth jotting down just for the future.
 The backwards compatibility is first iteration, it can probably be optimized.
 
-Current design limitations: Field count is capped at 65,535. I think this pretty fair. Yes, it's not very future proof. I have never worked in the industry before so I hold a bit of ignornance. If someone can give me a reason why it should be increased I will gladly change it. Max field size is capped at 18,446,744 terabytes, I think this is beyond fair.
+Current design limitations: Field count is capped at 65,535. I think this pretty fair. Yes, it's not very future proof. I have never worked in the industry before so I hold a bit of ignorance. If someone can give me a reason why it should be increased I will gladly change it. Max field size is capped at 18,446,744 terabytes, I think this is beyond fair.
 
 Current plans for the versioning architecture:
 
-The versioning architecure is designed to allow for a pre-calculated header size. This allows for maximum-performance in both serialization and deserialization.
+The versioning architecture is designed to allow for a calculable header size. This allows for maximum-performance in both serialization and deserialization.
 
 version header:
 guid typeVersion
