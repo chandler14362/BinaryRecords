@@ -3,6 +3,9 @@
 WIP C# serialization library with ultra-fast type-semantic free versioning that allows for deterministic and non-deterministic deserialization paths. 
 The versioning is completely optional, with planned optional backwards compatibility too. Currently the only constructable types are records. It requires no attributes or registering of types. Registering your own serialize/deserialize functions is supported.
 
+BinaryRecords does not offer compact versioning, in fact, the versioning data overhead is quite large. If you want a library that makes good compromise of both performance and data size checkout 
+[MessagePack-CSharp](https://github.com/neuecc/MessagePack-CSharp).
+
 Quick example:
 
 ```cs
@@ -54,28 +57,37 @@ The BinaryRecords versioning architecture:
 
 ---
 
-The versioning architecture is being written to support backwards compatibility in the future.
-Backwards compatibility is something some people care about so I think it's worth jotting down just for the future.
-The backwards compatibility is first iteration, it can probably be optimized.
-
-Current design limitations: Field count is capped at 65,535. I think this pretty fair. Yes, it's not very future proof. I have never worked in the industry before so I hold a bit of ignorance. If someone can give me a reason why it should be increased I will gladly change it. Max field size is capped at 18,446,744 terabytes, I think this is beyond fair.
-
-Current plans for the versioning architecture:
-
 The versioning architecture is designed to allow for a calculable header size. This allows for maximum-performance in both serialization and deserialization.
+There will be two styles of versioning, 32-bit and 64-bit. The header is designed around a future 64-bit implementation that allows processing of old 32-bit headers.
 
-version header:
-guid typeVersion
-ushort keyCount
-repeating (ushort key, ulong size)
+version-hash:
+guid versionHash
 
-Backwards compatibility is completely optional, it will need to be turned on by implementing some sort of interface.
+32-bit versioning architecture: 
+Both field count and field size are capped at uint max, (2^32) - 1.
 
-final data structure will be:
-version header + flat data + (optional backwards compatibility data). optional backwards compatibility data is 
-structured ushort keyCount, repeating (ushort key, ulong size) and then the flat data
+field-table:
+uint fieldCount
+4 bytes padding
+repeating (uint key, uint size)
 
-again, the backwards compatibility is optional. the plan is only types that want it turn it on. just like the versioning.
+version-header:
+version-hash
+field-table
+
+Forwards compatible data is structured as:
+uint compatibility (reserved for future header compatibility)
+4 bytes padding
+version-header
+serialized-data
+
+Forwards/Backwards compatible data is structured as:
+uint compatibility (reserved for future header compatibility)
+4 bytes padding
+version-header
+serialized-data
+field-table
+serialized-data
 
 ---
 
@@ -102,11 +114,10 @@ do the ultra-fast deserialization and then calculate the data size from the back
 
 handling non-confident backwards compatible type deserialization:
 if the type is backwards compatible with its data and its a key we aren't tracking,
-we will have to create 2 new buffers. One buffer will contain (ushort key, ulong size), the other will contain the serialized data. 
-After processing the current tracked data, we read the ushort keyCount, this data will be attempted to be processed too.
+we will have to create 2 new buffers. One buffer will contain (uint key, uint size), the other will contain the serialized data. 
+After processing the current tracked data, we process the next field-table describing the backwards compatible data we are holding.
 All keys and data that aren't being currently used will be shoved in to the 2 buffers that are created.
-At the end of the deserialization process the 2 buffers will need to be combined with ushort keyCount at the head.
-If there are no keys we want to keep track of after the deserialization process, the backwards compatible buffer will contain a single ushort 0 (keyCount).
+At the end of the deserialization process the 2 buffers will need to be combined with uint unusedFieldCount + 4 bytes padding at the head.
 This finalized buffer will represent the backwards compatible data.
 The serializable type will have to implement an interface exposing a byte[] to hold this data.
 
@@ -114,11 +125,11 @@ The serializable type will have to implement an interface exposing a byte[] to h
 
 And regardless of if the type is backwards compatible or not:
 
-reserialized data gets put back at full confidence so the next time its deserialized its ultra-fast again.
+Reserialized data gets put back at full confidence so the next time its deserialized its ultra-fast again.
 
 ```
 BinaryRecords specification
-Last modified at 2021-03-11 00:15:05 -0500
+Last modified at 2021-03-11 15:21:35 -0500
 Chandler Stowell © 2021-03-08 8:24:00 -0500
 ```
 
