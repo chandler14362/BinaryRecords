@@ -4,11 +4,11 @@ using System.Linq.Expressions;
 
 namespace BinaryRecords.Expressions
 {
-    public class ExpressionBlockBuilder
+    public sealed class ExpressionBlockBuilder
     {
-        private List<ParameterExpression> _variables = new();
-        private Dictionary<string, ParameterExpression> _variableDictionary = new();
-        private List<Expression> _expressions = new();
+        private readonly List<ParameterExpression> _variables = new();
+        private readonly Dictionary<string, ParameterExpression> _variableDictionary = new();
+        private readonly List<Expression> _expressions = new();
 
         public void Add(Expression expression) => _expressions.Add(expression);
 
@@ -45,15 +45,15 @@ namespace BinaryRecords.Expressions
         public ParameterExpression GetVariable(string name) => _variableDictionary[name];
 
         public ParameterExpression GetOrCreateVariable(Type type, string name) => 
-            _variableDictionary.TryGetValue(name, out var variable) 
-                ? variable 
-                : CreateVariable(type, name);
+            !_variableDictionary.TryGetValue(name, out var variable) 
+                ? CreateVariable(type, name) 
+                : variable ;
         
         public ParameterExpression GetOrCreateVariable<T>(string name) => GetOrCreateVariable(typeof(T), name);
 
         public IEnumerable<ParameterExpression> Variables => _variables;
 
-        public BlockExpression Build() => Expression.Block(Variables, _expressions);
+        public BlockExpression Build() => Expression.Block(_variables, _expressions);
 
         public static implicit operator BlockExpression(ExpressionBlockBuilder builder) => builder.Build();
     }

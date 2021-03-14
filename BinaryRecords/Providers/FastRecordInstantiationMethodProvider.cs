@@ -5,24 +5,26 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.InteropServices;
-using BinaryRecords.Models;
+using BinaryRecords.Records;
 
 namespace BinaryRecords.Providers
 {
     public static class FastRecordInstantiationMethodProvider
     {
-        private static Dictionary<Type, MethodInfo> _cachedMethods = new();
+        private static readonly Dictionary<Type, MethodInfo> CachedMethods = new();
         
         private static string FastInstantiationMethodName(Type type) => $"{type.Name}FastInstantiation";
 
-        private static MethodInfo GenerateFastRecordConstructionMethod(RecordConstructionModel model, Type blockType, 
+        private static MethodInfo GenerateFastRecordConstructionMethod(
+            RecordConstructionRecord constructionRecord, 
+            Type blockType, 
             PropertyInfo[] nonBlittableArguments)
         {
-            var methodName = FastInstantiationMethodName(model.type);
+            var methodName = FastInstantiationMethodName(constructionRecord.Type);
             var passedSpanType = typeof(ReadOnlySpan<byte>);
             var allParameters = new List<Type> {passedSpanType};
             allParameters.AddRange(nonBlittableArguments.Select(p => p.PropertyType));
-            var methodBuilder = new DynamicMethod(methodName, model.type, allParameters.ToArray(), true);
+            var methodBuilder = new DynamicMethod(methodName, constructionRecord.Type, allParameters.ToArray(), true);
             var ilGenerator = methodBuilder.GetILGenerator();
             var blockLocal = ilGenerator.DeclareLocal(blockType.MakeByRefType());
             
@@ -35,7 +37,7 @@ namespace BinaryRecords.Providers
             
             var blittableIndex = 0;
             var nonBlittableIndex = 0;
-            foreach (var property in model.Properties)
+            foreach (var (_, property) in constructionRecord.Properties)
             {
                 if (nonBlittableArguments.Contains(property))
                 {
@@ -48,19 +50,21 @@ namespace BinaryRecords.Providers
                 }
             }
             
-            ilGenerator.Emit(OpCodes.Newobj, model.Constructor);
+            ilGenerator.Emit(OpCodes.Newobj, constructionRecord.ConstructorInfo);
             ilGenerator.Emit(OpCodes.Ret);
             return methodBuilder;
         }
 
-        private static MethodInfo GenerateFastRecordMemberInitMethod(RecordConstructionModel model, Type blockType,
+        private static MethodInfo GenerateFastRecordMemberInitMethod(
+            RecordConstructionRecord model, 
+            Type blockType,
             PropertyInfo[] nonBlittableArguments)
         {
-            var methodName = FastInstantiationMethodName(model.type);
+            var methodName = FastInstantiationMethodName(model.Type);
             var passedSpanType = typeof(ReadOnlySpan<byte>);
             var allParameters = new List<Type> {passedSpanType};
             allParameters.AddRange(nonBlittableArguments.Select(p => p.PropertyType));
-            var methodBuilder = new DynamicMethod(methodName, model.type, allParameters.ToArray(), true);
+            var methodBuilder = new DynamicMethod(methodName, model.Type, allParameters.ToArray(), true);
             var ilGenerator = methodBuilder.GetILGenerator();
             var blockLocal = ilGenerator.DeclareLocal(blockType.MakeByRefType());
             
@@ -72,13 +76,12 @@ namespace BinaryRecords.Providers
             ilGenerator.Emit(OpCodes.Stloc, blockLocal);
             
             // Construct a new instance of the record
-            var recordConstructor = model.type.GetConstructor(Array.Empty<Type>())!;
-            ilGenerator.Emit(OpCodes.Newobj, recordConstructor);
+            ilGenerator.Emit(OpCodes.Newobj, model.ConstructorInfo);
 
             // Now we can set all the fields of the record
             var blittableIndex = 0;
             var nonBlittableIndex = 0;
-            foreach (var property in model.Properties)
+            foreach (var (_, property) in model.Properties)
             {
                 // Duplicate the record at the top of the stack, this is useful for chaining field sets
                 ilGenerator.Emit(OpCodes.Dup);
@@ -103,13 +106,15 @@ namespace BinaryRecords.Providers
             return methodBuilder;
         }
 
-        public static MethodInfo GetFastRecordInstantiationMethod(RecordConstructionModel model, Type blockType,
+        public static MethodInfo GetFastRecordInstantiationMethod(
+            RecordConstructionRecord constructionRecord, 
+            Type blockType,
             PropertyInfo[] nonBlittableArguments)
         {
-            if (_cachedMethods.TryGetValue(model.type, out var method)) return method;
-            return _cachedMethods[model.type] = !model.UsesMemberInit
-                ? GenerateFastRecordConstructionMethod(model, blockType, nonBlittableArguments)
-                : GenerateFastRecordMemberInitMethod(model, blockType, nonBlittableArguments);
+            if (CachedMethods.TryGetValue(constructionRecord.Type, out var method)) return method;
+            return CachedMethods[constructionRecord.Type] = !constructionRecord.UsesMemberInit
+                ? GenerateFastRecordConstructionMethod(constructionRecord, blockType, nonBlittableArguments)
+                : GenerateFastRecordMemberInitMethod(constructionRecord, blockType, nonBlittableArguments);
         }
     }
 }

@@ -3,6 +3,8 @@ using System.Linq.Expressions;
 
 namespace BinaryRecords.Delegates
 {
-    public delegate Expression GenerateAddElementExpressionDelegate(Expression instance, Type type,
+    public delegate Expression GenerateAddElementExpressionDelegate(
+        Expression instance, 
+        Type type,  
         Func<Expression> deserializeType);
 }
