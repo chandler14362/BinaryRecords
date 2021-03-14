@@ -1,6 +1,6 @@
 using System;
 
-namespace BinaryRecords.Attributes
+namespace BinaryRecords
 {
     public class KeyAttribute : Attribute
     {

@@ -4,5 +4,5 @@ using BinaryRecords.Records;
 
 namespace BinaryRecords.Delegates
 {
-    public delegate TypeRecord GenerateTypeRecordDelegate(Type type, ITypingLibrary typingLibrary);
+    public delegate TypeRecord GenerateTypeRecordDelegate(ITypingLibrary typingLibrary, Type type);
 }

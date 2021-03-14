@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
+using BinaryRecords.Delegates;
 using BinaryRecords.Enums;
+using BinaryRecords.Expressions;
 using BinaryRecords.Records;
 using BinaryRecords.Util;
-using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -13,25 +13,27 @@ namespace BinaryRecords.Providers
     {
         public static readonly IReadOnlyList<ExpressionGeneratorProvider> Builtin = CreateBuiltinProviders().ToList();
 
+        private delegate Expression SerializeBlittable(Expression buffer, Expression data);
+        private delegate Expression DeserializeBlittable(Expression buffer);
+        
         private static BlittableExpressionGeneratorProvider CreateBlittableBufferProvider<T>(
-            MethodInfo serialize, 
-            MethodInfo deserialize,
+            SerializeBlittable serialize, 
+            DeserializeBlittable deserialize,
             SerializableDataTypes serializableDataType)
         {
             return new(
                 Name: $"{typeof(T)}BlittableBufferProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-                    blockBuilder += Expression.Call(bufferAccess, serialize, dataAccess);
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += serialize(buffer, data);
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (_, _, bufferAccess) => 
-                    Expression.Call(bufferAccess, deserialize),
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) => deserialize(buffer),
                 GenerateTypeRecord: (_, _) => new PrimitiveTypeRecord(serializableDataType)
             );
         }
@@ -39,73 +41,73 @@ namespace BinaryRecords.Providers
         private static IEnumerable<ExpressionGeneratorProvider> CreateBuiltinProviders()
         {
             // Create the providers for each primitive type
-            var bufferWriterType = typeof(SpanBufferWriter);
-            var bufferReaderType = typeof(SpanBufferReader);
+            var bufferWriterType = typeof(BinaryBufferWriter);
+            var bufferReaderType = typeof(BinaryBufferReader);
 
             // bool type
             yield return CreateBlittableBufferProvider<bool>(
-                bufferWriterType.GetMethod("WriteBool")!,
-                bufferReaderType.GetMethod("ReadBool")!,
+                BufferWriterExpressions.WriteBool,
+                BufferReaderExpressions.ReadBool,
                 SerializableDataTypes.Bool
                 );
             
             // byte types
             yield return CreateBlittableBufferProvider<byte>(
-                bufferWriterType.GetMethod("WriteUInt8")!,
-                bufferReaderType.GetMethod("ReadUInt8")!,
+                BufferWriterExpressions.WriteUInt8,
+                BufferReaderExpressions.ReadUInt8,
                 SerializableDataTypes.Byte
             );
             yield return CreateBlittableBufferProvider<sbyte>(
-                bufferWriterType.GetMethod("WriteInt8")!,
-                bufferReaderType.GetMethod("ReadInt8")!,
+                BufferWriterExpressions.WriteInt8,
+                BufferReaderExpressions.ReadUInt8,
                 SerializableDataTypes.SByte
                 );   
             
             // short types
             yield return CreateBlittableBufferProvider<ushort>(
-                bufferWriterType.GetMethod("WriteUInt16")!, 
-                bufferReaderType.GetMethod("ReadUInt16")!,
+                BufferWriterExpressions.WriteUInt16, 
+                BufferReaderExpressions.ReadUInt16,
                 SerializableDataTypes.UShort
                 );
             yield return CreateBlittableBufferProvider<short>(
-                bufferWriterType.GetMethod("WriteInt16")!,
-                bufferReaderType.GetMethod("ReadInt16")!,
+                BufferWriterExpressions.WriteInt16,
+                BufferReaderExpressions.ReadUInt16,
                 SerializableDataTypes.Short
                 );
 
             // int types
             yield return CreateBlittableBufferProvider<uint>(
-                bufferWriterType.GetMethod("WriteUInt32")!,
-                bufferReaderType.GetMethod("ReadUInt32")!,
+                BufferWriterExpressions.WriteUInt32,
+                BufferReaderExpressions.ReadUInt32,
                 SerializableDataTypes.UInt
                 );
             yield return CreateBlittableBufferProvider<int>(
-                bufferWriterType.GetMethod("WriteInt32")!, 
-                bufferReaderType.GetMethod("ReadInt32")!,
+                BufferWriterExpressions.WriteInt32, 
+                BufferReaderExpressions.ReadInt32,
                 SerializableDataTypes.Int
                 );
 
             // long types
             yield return CreateBlittableBufferProvider<ulong>(
-                bufferWriterType.GetMethod("WriteUInt64")!,
-                bufferReaderType.GetMethod("ReadUInt64")!,
+                BufferWriterExpressions.WriteUInt64,
+                BufferReaderExpressions.ReadUInt64,
                 SerializableDataTypes.ULong
                 );
             yield return CreateBlittableBufferProvider<long>(
-                bufferWriterType.GetMethod("WriteInt64")!,
-                bufferReaderType.GetMethod("ReadInt64")!,
+                BufferWriterExpressions.WriteInt64,
+                BufferReaderExpressions.ReadInt64,
                 SerializableDataTypes.Long
                 );
 
             // float types
             yield return CreateBlittableBufferProvider<float>(
-                bufferWriterType.GetMethod("WriteFloat32")!,
-                bufferReaderType.GetMethod("ReadFloat32")!,
+                BufferWriterExpressions.WriteSingle,
+                BufferReaderExpressions.ReadSingle,
                 SerializableDataTypes.Float
                 );
             yield return CreateBlittableBufferProvider<double>(
-                bufferWriterType.GetMethod("WriteFloat64")!,
-                bufferReaderType.GetMethod("ReadFloat64")!,
+                BufferWriterExpressions.WriteDouble,
+                BufferReaderExpressions.ReadDouble,
                 SerializableDataTypes.Double
                 );
 
@@ -114,17 +116,17 @@ namespace BinaryRecords.Providers
                 Name: "StringProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(string),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-                    blockBuilder += Expression.Call(bufferAccess, bufferWriterType.GetMethod("WriteUTF8String")!, dataAccess);
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += BufferWriterExpressions.WriteUTF8String(buffer, data);
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
-                    Expression.Call(bufferAccess, bufferReaderType.GetMethod("ReadUTF8String")!),
-                GenerateTypeRecord: (_, typingLibrary) => new ListTypeRecord(typingLibrary.GetTypeRecord(typeof(byte)))
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) => 
+                    BufferReaderExpressions.ReadUTF8String(buffer),
+                GenerateTypeRecord: (typingLibrary, type) => new ListTypeRecord(typingLibrary.GetTypeRecord(typeof(byte)))
             );
         }
     }

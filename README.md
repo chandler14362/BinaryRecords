@@ -1,7 +1,7 @@
 # BinaryRecords
 
 WIP C# serialization library with ultra-fast type-semantic free versioning that allows for deterministic and non-deterministic deserialization paths. 
-The versioning is completely optional, with planned optional backwards compatibility too. Currently the only constructable types are records. It requires no attributes or registering of types. Registering your own serialize/deserialize functions is supported.
+The versioning is completely optional, with planned optional backwards compatibility too. Currently the only constructable types are records. Standard usage requires no attributes or registering of types. Registering your own serialize/deserialize functions is supported.
 
 BinaryRecords does not offer compact versioning, in fact, the versioning data overhead is quite large. If you want a library that makes good compromise of both performance and data size checkout 
 [MessagePack-CSharp](https://github.com/neuecc/MessagePack-CSharp).
@@ -28,17 +28,15 @@ void Main(string[] args)
 More examples [here](https://github.com/chandler14362/BinaryRecords/blob/main/ConsoleTest/Program.cs)
 
 Dev todo:
- - Support ValueTypes in the TypeSerializer in a machine ambiguous way using blittable block technique
- - Consider enums blittable based on their backing type
- - Look in to optimizing the blittable block data layout
+ - Fix nested record serialize generation lockup, just need to divert the codepath to use some referencable MethodInfo rather than inlining the expression.
+ - Use varints for list type length headers.
+ - Look in to optimizing the blittable block data layout, this will also allow us to generate less structs
  - Add warmup calls for type serializers (maybe an api for warming up an entire assembly too)
- 
  - Support record inheritance (memberinit might be only non working)
  - Class and struct support
- - Overhaul the internal buffer implementations, remove Krypton.Buffers dependency.
- - Toggleable byte-order
- - Design a friendly api that lets you move the data between two different BinaryRecords serialization models, for example, you could have one for serializing LE and then one for BE. Both being able to execute completely separate from eachother. This would allow each one to plug in their own extensions to handle data differently too.
- - Redesign the version hash, current implementation was written with the old type model design in mind. Now the only data needed to determine the hash are the keys the type holds. It can probably get more compact than a guid without comprimising too much uniqueness. 
+ - Non-generic serialize apis
+ - Design a friendly api that lets you move the data between two different BinaryRecords serialization models, both being able to execute completely separate from each other. This would allow each one to plug in their own extensions to handle data differently too.
+ - AOT codegen (need some attribute to mark the types with for this)
 
 Spec is currently a todo, need to move this to its own file.
 
@@ -47,7 +45,7 @@ BinaryRecords Specification
 
 The design philosophy:
 
-BinaryRecords is designed to be maximum-performance. There will never be an attempt to compact the data. All the internal type implementations will forever be raw.
+BinaryRecords is designed to be maximum-performance. There will never be an attempt to compact the data. All the internal type implementations will forever be raw (with the exception of varints for list length headers, this is needed for seamless 32bit->64bit compatibility).
 The data BinaryRecords produces is completely type-semantic free. This allows for endless, care-free, extensibility.
 It is very easy to write extensions, you can override any builtin type.
 
@@ -131,6 +129,7 @@ Reserialized data gets put back at full confidence so the next time its deserial
 BinaryRecords specification
 Last modified at 2021-03-11 15:21:35 -0500
 Chandler Stowell © 2021-03-08 8:24:00 -0500
+This copyright falls under the same MIT license included in the https://github.com/chandler14362/BinaryRecords repository.
 ```
 
 Acknowledgements

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using BinaryRecords.Delegates;
+using BinaryRecords.Enums;
+using BinaryRecords.Expressions;
 using BinaryRecords.Providers;
 using BinaryRecords.Records;
 using BinaryRecords.Util;
@@ -10,9 +12,11 @@ namespace BinaryRecords.Abstractions
 {
     public interface ITypingLibrary
     {
+        BitSize BitSize { get; init; }
+        
         void AddGeneratorProvider<T>(
-            GenericSerializeDelegate<T> serializerDelegate,
-            GenericDeserializeDelegate<T> deserializerDelegate,
+            SerializeExtensionDelegate<T> serializerDelegate,
+            DeserializeExtensionDelegate<T> deserializerDelegate,
             string? name = null,
             ProviderPriority priority = ProviderPriority.High);
         void AddGeneratorProvider(ExpressionGeneratorProvider expressionGeneratorProvider);
@@ -25,12 +29,12 @@ namespace BinaryRecords.Abstractions
 
         Expression GenerateSerializeExpression(
             Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess, 
-            AutoVersioning? autoVersioning);
+            Expression buffer, 
+            Expression data, 
+            VersionWriter? versioning = null);
         Delegate GetSerializeDelegate(Type type);
 
-        Expression GenerateDeserializeExpression(Type type, Expression bufferAccess);
+        Expression GenerateDeserializeExpression(Type type, Expression buffer);
         Delegate GetDeserializeDelegate(Type type);
         
         IReadOnlyList<ExpressionGeneratorProvider> GetExpressionGeneratorProviders();

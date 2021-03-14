@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.Linq.Expressions;
 
-namespace BinaryRecords.Util
+namespace BinaryRecords.Expressions
 {
     public static class ArrayPoolExpressions<T>
     {

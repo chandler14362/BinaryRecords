@@ -1,6 +1,4 @@
-using Krypton.Buffers;
-
 namespace BinaryRecords.Delegates
 {
-    public delegate void GenericSerializeDelegate<T>(T obj, ref SpanBufferWriter buffer);
+    public delegate void GenericSerializeDelegate<T>(T obj, ref BinaryBufferWriter buffer);
 }

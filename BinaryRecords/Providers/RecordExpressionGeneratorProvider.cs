@@ -5,11 +5,11 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using BinaryRecords.Abstractions;
-using BinaryRecords.Attributes;
+using BinaryRecords.Enums;
+using BinaryRecords.Expressions;
 using BinaryRecords.Extensions;
 using BinaryRecords.Records;
 using BinaryRecords.Util;
-using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -36,8 +36,8 @@ namespace BinaryRecords.Providers
         }
 
         private static ConstructableTypeRecord GenerateConstructableTypeRecord(
-            Type type, 
-            ITypingLibrary typingLibrary)
+            ITypingLibrary typingLibrary,
+            Type type)
         {
             var versioned = false;
             
@@ -109,18 +109,18 @@ namespace BinaryRecords.Providers
         }
 
         private static Expression GenerateSerializeExpression(
-            ITypingLibrary typingLibrary, 
-            Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess,
-            AutoVersioning? autoVersioning)
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression buffer,
+            Expression data,
+            VersionWriter? versioning = null)
         {
             var typeRecord = typingLibrary.GetTypeRecord(type) as ConstructableTypeRecord;
             if (typeRecord == null) throw new Exception();
-            var typeGuid = TypeRecordGuidProvider.ComputeGuid(typeRecord);
+            var typeGuid = ConstructableVersionGuidProvider.ComputeGuid(typeRecord, typingLibrary.BitSize);
             
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+            versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
 
             Expression? rentedHeaderArray = null;
             Expression? headerWriter = null;
@@ -128,8 +128,19 @@ namespace BinaryRecords.Providers
             int headerSize = 0;
             if (typeRecord.Versioned)
             {
+                if (typingLibrary.BitSize != BitSize.B32)
+                    throw new NotImplementedException();
+                
                 // Calculate header size.
-                headerSize = 16 + sizeof(uint) + (typeRecord.Members.Count * sizeof(uint) * 2);
+                headerSize = 
+                    // compatibility plus padding
+                    sizeof(uint) + 4 + 
+                    // version hash
+                    16 + 
+                    // fieldcount plus padding
+                    sizeof(uint) + 4 + 
+                    // keys and sizes
+                    (typeRecord.Members.Count * sizeof(uint) * 2);
                 
                 // Since Expressions don't support stackalloc, we need to pool an array here. Oh well.
                 // Not the end of the world
@@ -139,13 +150,19 @@ namespace BinaryRecords.Providers
                     ArrayPoolExpressions<byte>.Rent(Expression.Constant(headerSize)));
 
                 // Build the header writer
-                headerWriter = blockBuilder.CreateVariable(typeof(SpanBufferWriter));
+                headerWriter = blockBuilder.CreateVariable(typeof(BinaryBufferWriter));
                 blockBuilder += Expression.Assign(
                     headerWriter, 
                     Expression.Call(
-                        SpanBufferWriterUtil.FixedFromArrayMethod, 
+                        BinaryBufferWriterUtil.FixedFromArrayMethod, 
                         rentedHeaderArray,
                         Expression.Constant(headerSize)));
+                
+                // Write our compatibility 
+                blockBuilder += BufferWriterExpressions.WriteUInt32(
+                        headerWriter,
+                        Expression.Constant((uint) typingLibrary.BitSize));
+                blockBuilder += BufferWriterExpressions.PadBytes(headerWriter, Expression.Constant(4));
                 
                 // Write our type guid
                 blockBuilder += BufferWriterExpressions.WriteGuid(
@@ -156,57 +173,62 @@ namespace BinaryRecords.Providers
                 blockBuilder += BufferWriterExpressions.WriteUInt32(
                     headerWriter,
                     Expression.Constant((uint) typeRecord.Members.Count));
+                blockBuilder += BufferWriterExpressions.PadBytes(headerWriter, Expression.Constant(4));
                 
                 // Reserve a bookmark on the buffer for our header
-                headerBookmark = blockBuilder.CreateVariable<SpanBufferWriter.Bookmark>();
+                headerBookmark = blockBuilder.CreateVariable<BinaryBufferWriter.Bookmark>();
                 blockBuilder += Expression.Assign(
                     headerBookmark,
-                    BufferWriterExpressions.ReserveBookmark(bufferAccess, headerSize));
+                    BufferWriterExpressions.ReserveBookmark(buffer, Expression.Constant(headerSize)));
             }
 
             var endLabel = Expression.Label();
 
             // Null check
             blockBuilder += Expression.IfThen(
-                Expression.Equal(dataAccess, Expression.Constant(null)),
+                Expression.Equal(data, Expression.Constant(null)),
                 Expression.Block(
-                        BufferWriterExpressions.WriteBool(bufferAccess, Expression.Constant(false)),
+                        BufferWriterExpressions.WriteBool(buffer, Expression.Constant(false)),
                         Expression.Return(endLabel)
                     )
                 );
 
-            blockBuilder += BufferWriterExpressions.WriteBool(bufferAccess, Expression.Constant(true));
+            blockBuilder += BufferWriterExpressions.WriteBool(buffer, Expression.Constant(true));
 
             var recordConstruction = RecordConstructionRecords[type];
-            var (blittables, nonBlittables) = GetRecordPropertyLayout(typingLibrary, recordConstruction);
+            GetRecordPropertyLayout(
+                typingLibrary, 
+                recordConstruction, 
+                out var blittables, 
+                out var nonBlittables);
             
             // Serialize each blittable property
             blockBuilder = blittables.Aggregate(blockBuilder, 
                 (current, property) => 
                     current + typingLibrary.GenerateSerializeExpression(
-                        property.Property.PropertyType, 
-                        Expression.Property(dataAccess, property.Property), 
-                        bufferAccess,
-                        typeRecord.Versioned ? new AutoVersioning(property.Key, headerWriter!) : null));
+                        property.Property.PropertyType,
+                        buffer,
+                        Expression.Property(data, property.Property),
+                        typeRecord.Versioned ? new VersionWriter(property.Key, headerWriter!) : null));
 
             // Now we serialize each non-blittable property
             blockBuilder = nonBlittables.Aggregate(blockBuilder, 
                 (current, property) => 
                     current + typingLibrary.GenerateSerializeExpression(
                         property.Property.PropertyType, 
-                        Expression.Property(dataAccess, property.Property), 
-                        bufferAccess,
-                        typeRecord.Versioned ? new AutoVersioning(property.Key, headerWriter!) : null));
+                        buffer,
+                        Expression.Property(data, property.Property),
+                        typeRecord.Versioned ? new VersionWriter(property.Key, headerWriter!) : null));
             
             blockBuilder += Expression.Label(endLabel);
-            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+            versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
             
             // If we are versioned we need to write our header bookmark and clean up our rented array
             if (typeRecord.Versioned)
             {
                 blockBuilder += Expression.Call(
                     BufferExtensions.WriteSizedArrayBookmarkMethod,
-                    bufferAccess,
+                    buffer,
                     headerBookmark!,
                     rentedHeaderArray!,
                     Expression.Constant(headerSize));
@@ -219,30 +241,33 @@ namespace BinaryRecords.Providers
         private static Expression GenerateDeserializeExpression(
             ITypingLibrary typingLibrary,
             Type type,
-            Expression bufferAccess)
+            Expression buffer)
         {
             var typeRecord = typingLibrary.GetTypeRecord(type) as ConstructableTypeRecord;
             if (typeRecord == null) throw new Exception();
             var constructionRecord = RecordConstructionRecords[type];
             return typeRecord.Versioned
-                ? GenerateVersionedDeserializedExpression(typingLibrary, typeRecord, constructionRecord, bufferAccess)
-                : GenerateSequentialDeserializeExpression(typingLibrary, constructionRecord, bufferAccess);
+                ? GenerateVersionedDeserializedExpression(typingLibrary, buffer, typeRecord, constructionRecord)
+                : GenerateSequentialDeserializeExpression(typingLibrary, buffer, constructionRecord);
         }
 
         private static Expression GenerateVersionedDeserializedExpression(
             ITypingLibrary typingLibrary,
+            Expression buffer,
             ConstructableTypeRecord typeRecord,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            RecordConstructionRecord constructionRecord)
         {
-            var typeGuid = TypeRecordGuidProvider.ComputeGuid(typeRecord);
+            var typeGuid = ConstructableVersionGuidProvider.ComputeGuid(typeRecord, typingLibrary.BitSize);
             var blockBuilder = new ExpressionBlockBuilder();
-                
+            
+            // TODO: Actually check against the compatibility, for now skip
+            blockBuilder += BufferReaderExpressions.SkipBytes(buffer, Expression.Constant(8));
+            
             // Read in the guid
             var serializedGuid = blockBuilder.CreateVariable<Guid>();
             blockBuilder += Expression.Assign(
                 serializedGuid,
-                BufferReaderExpressions.ReadGuid(bufferAccess));
+                BufferReaderExpressions.ReadGuid(buffer));
 
             var returnLabel = Expression.Label(constructionRecord.Type);
 
@@ -252,30 +277,30 @@ namespace BinaryRecords.Providers
                 Expression.Equal(serializedGuid, Expression.Constant(typeGuid)),
                 Expression.Return(
                     returnLabel, 
-                    GenerateConfidentDeserializeExpression(typingLibrary, constructionRecord, bufferAccess)),
+                    GenerateConfidentDeserializeExpression(typingLibrary, buffer, constructionRecord)),
                 Expression.Return(
                     returnLabel,
-                    GenerateNonConfidentDeserializeExpression(typingLibrary, constructionRecord, bufferAccess))
+                    GenerateNonConfidentDeserializeExpression(typingLibrary, buffer, constructionRecord))
                 );
             return blockBuilder += Expression.Label(returnLabel, Expression.Constant(null, constructionRecord.Type));
         }
 
         private static Expression GenerateConfidentDeserializeExpression(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            Expression buffer,
+            RecordConstructionRecord constructionRecord)
         {
             var blockBuilder = new ExpressionBlockBuilder();
             // Calculate the size of the header without the guid so we can skip
-            var remainingHeaderSize = sizeof(uint) + (constructionRecord.Properties.Count * sizeof(uint) * 2);
-            blockBuilder += BufferReaderExpressions.SkipBytes(bufferAccess, Expression.Constant(remainingHeaderSize));
-            return blockBuilder += GenerateSequentialDeserializeExpression(typingLibrary, constructionRecord, bufferAccess);
+            var remainingHeaderSize = sizeof(uint) + 4 + (constructionRecord.Properties.Count * sizeof(uint) * 2);
+            blockBuilder += BufferReaderExpressions.SkipBytes(buffer, Expression.Constant(remainingHeaderSize));
+            return blockBuilder += GenerateSequentialDeserializeExpression(typingLibrary, buffer, constructionRecord);
         }
         
         private static Expression GenerateNonConfidentDeserializeExpression(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            Expression buffer,
+            RecordConstructionRecord constructionRecord)
         {
             var blockBuilder = new ExpressionBlockBuilder();
 
@@ -287,11 +312,12 @@ namespace BinaryRecords.Providers
                     propertyVariables[i],
                     Expression.Default(constructionRecord.Properties[i].Property.PropertyType));
 
-            // Read in the key count
+            // Read in the key count, this can be optimized in to a single call modifying our buffer code
             var keyCount = blockBuilder.CreateVariable<uint>();
             blockBuilder += Expression.Assign(
                 keyCount, 
-                BufferReaderExpressions.ReadUInt32(bufferAccess));
+                BufferReaderExpressions.ReadUInt32(buffer));
+            blockBuilder += BufferReaderExpressions.SkipBytes(buffer, Expression.Constant(4));
 
             var keysAndSizesCount = blockBuilder.CreateVariable<int>();
             blockBuilder += Expression.Assign(
@@ -304,6 +330,7 @@ namespace BinaryRecords.Providers
             // TODO: I really want to use stackalloc for this, but right now I have to use ArrayPool again.
             //       It might be worth rewriting this portion of the code using ILEmit but for now this works.
             // I want to do this for if some sort of streaming or sequencing is ever implemented in to the buffers
+            // It also allows for better memory access
             var keysAndSizes = blockBuilder.CreateVariable<uint[]>();
             blockBuilder += Expression.Assign(
                 keysAndSizes,
@@ -313,7 +340,7 @@ namespace BinaryRecords.Providers
             // Now read in the keysAndSizes and copy them over
             blockBuilder += Expression.Call(
                 BufferExtensions.ReadAndCopyUInt32SliceMethod,
-                bufferAccess,
+                buffer,
                 keysAndSizes,
                 keysAndSizesCount);
 
@@ -322,7 +349,7 @@ namespace BinaryRecords.Providers
             // Null check
             blockBuilder += Expression.IfThen(
                 Expression.Equal(
-                    BufferReaderExpressions.ReadBool(bufferAccess),
+                    BufferReaderExpressions.ReadBool(buffer),
                     Expression.Constant(false)
                 ),
                 Expression.Return(endLabel, Expression.Constant(null, constructionRecord.Type))
@@ -337,12 +364,12 @@ namespace BinaryRecords.Providers
                     Expression.LessThan(keysAndSizesIndex, keysAndSizesCount),
                     Expression.Block(
                         GenerateNonConfidentDataSwitchExpression(
-                            typingLibrary, 
+                            typingLibrary,
+                            buffer,
                             keysAndSizes,
                             keysAndSizesIndex,
                             propertyVariables, 
-                            constructionRecord,
-                            bufferAccess),
+                            constructionRecord),
                         Expression.AddAssign(keysAndSizesIndex, Expression.Constant(2))),
                     Expression.Break(loopExit)
                     ),
@@ -369,11 +396,11 @@ namespace BinaryRecords.Providers
 
         private static Expression GenerateNonConfidentDataSwitchExpression(
             ITypingLibrary typingLibrary,
+            Expression buffer,
             Expression keysAndSizes,
             Expression keysAndSizesIndex,
             ParameterExpression[] variables,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            RecordConstructionRecord constructionRecord)
         {
             var blockBuilder = new ExpressionBlockBuilder();
             var switchBreak = Expression.Label();
@@ -401,20 +428,20 @@ namespace BinaryRecords.Providers
                     Expression.Equal(currentKey, Expression.Constant(neededKey)),
                         Expression.Block(
                             Expression.Assign(
-                                applicableVariable, 
-                                typingLibrary.GenerateDeserializeExpression(property.PropertyType, bufferAccess)),
+                                applicableVariable,
+                                typingLibrary.GenerateDeserializeExpression(property.PropertyType, buffer)),
                             Expression.Goto(switchBreak)));
             }
             
             // If we got here it means it's a key we can't handle. Do a data skip
-            blockBuilder += BufferReaderExpressions.SkipBytes(bufferAccess, Expression.Convert(currentSize, typeof(int)));
+            blockBuilder += BufferReaderExpressions.SkipBytes(buffer, Expression.Convert(currentSize, typeof(int)));
             return blockBuilder += Expression.Label(switchBreak); 
         }
         
         private static Expression GenerateSequentialDeserializeExpression(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            Expression buffer,
+            RecordConstructionRecord constructionRecord)
         {
             var blockBuilder = new ExpressionBlockBuilder();
             var endLabel = Expression.Label(constructionRecord.Type);
@@ -422,7 +449,7 @@ namespace BinaryRecords.Providers
             // Null check
             blockBuilder += Expression.IfThen(
                 Expression.Equal(
-                    BufferReaderExpressions.ReadBool(bufferAccess),
+                    BufferReaderExpressions.ReadBool(buffer),
                     Expression.Constant(false)
                 ),
                 Expression.Return(endLabel, Expression.Constant(null, constructionRecord.Type))
@@ -430,10 +457,10 @@ namespace BinaryRecords.Providers
             
 #if NET5_0
             var blockExpression = BitConverter.IsLittleEndian && IsBlittableOptimizationCandidate(typingLibrary, constructionRecord)
-                ? GenerateFastRecordDeserializer(typingLibrary, constructionRecord, bufferAccess)
-                : GenerateStandardRecordDeserializer(typingLibrary, constructionRecord, bufferAccess);
+                ? GenerateFastRecordDeserializer(typingLibrary, buffer, constructionRecord)
+                : GenerateStandardRecordDeserializer(typingLibrary, buffer, constructionRecord);
 #else
-            var blockExpression = GenerateStandardRecordDeserializer(typingLibrary, constructionRecord, bufferAccess);
+            var blockExpression = GenerateStandardRecordDeserializer(typingLibrary, buffer, constructionRecord);
 #endif
             blockBuilder += Expression.Label(endLabel, blockExpression);
             return blockBuilder;
@@ -441,19 +468,23 @@ namespace BinaryRecords.Providers
 
         private static BlockExpression GenerateStandardRecordDeserializer(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            Expression buffer,
+            RecordConstructionRecord constructionRecord)
         {
             var propertyLookup = new Dictionary<PropertyInfo, ParameterExpression>();
             var blockBuilder = new ExpressionBlockBuilder();
 
-            var (blittable, nonBlittable) = GetRecordPropertyLayout(typingLibrary, constructionRecord);
+            GetRecordPropertyLayout(
+                typingLibrary, 
+                constructionRecord, 
+                out var blittable, 
+                out var nonBlittable);
             foreach (var (_, property) in blittable.Concat(nonBlittable))
             {
                 var variable = propertyLookup[property] 
                     = blockBuilder.CreateVariable(property.PropertyType);
                 blockBuilder += Expression.Assign(variable, 
-                    typingLibrary.GenerateDeserializeExpression(property.PropertyType, bufferAccess));
+                    typingLibrary.GenerateDeserializeExpression(property.PropertyType, buffer));
             }
             
             return blockBuilder += !constructionRecord.UsesMemberInit
@@ -469,12 +500,16 @@ namespace BinaryRecords.Providers
 #if NET5_0
         private static BlockExpression GenerateFastRecordDeserializer(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord,
-            Expression bufferAccess)
+            Expression buffer,
+            RecordConstructionRecord constructionRecord)
         {
             var blockBuilder = new ExpressionBlockBuilder();
 
-            var (blittables, nonBlittables) = GetRecordPropertyLayout(typingLibrary, constructionRecord);
+            GetRecordPropertyLayout(
+                typingLibrary, 
+                constructionRecord, 
+                out var blittables, 
+                out var nonBlittables);
             var blittableTypes = blittables.Select(p => p.Property.PropertyType).ToArray();
             var nonBlittableProperties = nonBlittables.Select(p => p.Property).ToArray();
             
@@ -485,24 +520,24 @@ namespace BinaryRecords.Providers
                 FastRecordInstantiationMethodProvider.GetFastRecordInstantiationMethod(constructionRecord, blockType, nonBlittableProperties);
 
             // Deserialize non blittable properties in to arguments list
-            var arguments = new List<Expression> {Expression.Call(readBlockMethod, bufferAccess)};
+            var arguments = new List<Expression> {Expression.Call(readBlockMethod, buffer)};
 
             // TODO: Call the MethodInfo backing our generated Delegates from within the IL so we can stop abusing the stackframe here.
-            arguments.AddRange(nonBlittableProperties.Select(
-                p => typingLibrary.GenerateDeserializeExpression(p.PropertyType, bufferAccess)));
-            
+            foreach (var nonBlittable in nonBlittableProperties)
+                arguments.Add(typingLibrary.GenerateDeserializeExpression(nonBlittable.PropertyType, buffer));
             return blockBuilder += Expression.Call(constructRecordMethod, arguments);
         }
 #endif
         
-        private static ((uint Key, PropertyInfo Property)[] Blittables, (uint Key, PropertyInfo Property)[] NonBlittables) GetRecordPropertyLayout(
+        private static void GetRecordPropertyLayout(
             ITypingLibrary typingLibrary,
-            RecordConstructionRecord constructionRecord)
+            RecordConstructionRecord constructionRecord,
+            out (uint Key, PropertyInfo Property)[] blittables,
+            out (uint Key, PropertyInfo Property)[] nonBlittables)
         {
-            var blittables = constructionRecord.Properties.Where(
+            blittables = constructionRecord.Properties.Where(
                 p => typingLibrary.IsTypeBlittable(p.Item2.PropertyType)).ToArray();
-            var nonBlittables = constructionRecord.Properties.Except(blittables).ToArray();
-            return (blittables, nonBlittables);
+            nonBlittables = constructionRecord.Properties.Except(blittables).ToArray();
         }
 
         private static bool IsBlittableOptimizationCandidate(

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
+using BinaryRecords.Enums;
+using BinaryRecords.Expressions;
 using BinaryRecords.Extensions;
 using BinaryRecords.Providers;
 using BinaryRecords.Records;
@@ -16,9 +18,14 @@ namespace BinaryRecords.Implementations
         private readonly Dictionary<Type, ExpressionGeneratorProvider> _typeProviderCache = new();
         private readonly Dictionary<Type, TypeRecord> _typeRecords = new();
 
+        private readonly Dictionary<Type, Delegate> _serializeDelegates = new();
+        private readonly Dictionary<Type, Delegate> _deserializeDelegates = new();
+        
+        public BitSize BitSize { get; init; }
+
         public void AddGeneratorProvider<T>(
-            GenericSerializeDelegate<T> serializerDelegate, 
-            GenericDeserializeDelegate<T> deserializerDelegate,
+            SerializeExtensionDelegate<T> serializerDelegate, 
+            DeserializeExtensionDelegate<T> deserializerDelegate,
             string? name=null,
             ProviderPriority priority=ProviderPriority.High)
         {
@@ -27,17 +34,16 @@ namespace BinaryRecords.Implementations
                 Name: name,
                 Priority: priority,
                 IsInterested: (type, _) => type == typeof(T),
-                GenerateSerializeExpression: (_, _, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-                    blockBuilder += Expression.Invoke(
-                        Expression.Constant(serializerDelegate), bufferAccess, dataAccess);
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += Expression.Invoke(Expression.Constant(serializerDelegate),data, buffer);
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (_, _, bufferAccess) => 
-                    Expression.Invoke(Expression.Constant(deserializerDelegate), bufferAccess),
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) => 
+                    Expression.Invoke(Expression.Constant(deserializerDelegate), buffer),
                 GenerateTypeRecord: (_, _) => new ExtensionTypeRecord());
             _expressionGeneratorProviders.Add(provider);
         }
@@ -61,43 +67,48 @@ namespace BinaryRecords.Implementations
             var provider = GetInterestedGeneratorProvider(type);
             if (provider is null)
                 ThrowHelpers.ThrowNoInterestedProvider(type);
-            return _typeRecords[type] = provider!.GenerateTypeRecord(type, this);;
+            return _typeRecords[type] = provider!.GenerateTypeRecord(this, type);
         }
 
-        public bool IsTypeSerializable(Type type) =>
-            _expressionGeneratorProviders.TryGetInterestedProvider(type, this, out _);
+        public bool IsTypeSerializable(Type type) => GetInterestedGeneratorProvider(type) != null;
 
-        public bool IsTypeBlittable(Type type) => 
-            _expressionGeneratorProviders.TryGetInterestedProvider(type, this, out var provider) && 
-            provider is BlittableExpressionGeneratorProvider;
+        public bool IsTypeBlittable(Type type)
+        {
+            var provider = GetInterestedGeneratorProvider(type);
+            return provider != null && provider is BlittableExpressionGeneratorProvider;
+        }
 
-        public Expression GenerateSerializeExpression(
-            Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess, 
-            AutoVersioning? autoVersioning)
+        public Expression GenerateSerializeExpression(Type type, Expression buffer, Expression data, VersionWriter? versioning = null)
         {
             var provider = GetInterestedGeneratorProvider(type);
             if (provider == null)
                 ThrowHelpers.ThrowNoInterestedProvider(type);
-            return provider!.GenerateSerializeExpression(this, type, dataAccess, bufferAccess, autoVersioning);
+            return provider!.GenerateSerializeExpression(this, type, buffer, data, versioning);
         }
 
-        public Delegate GetSerializeDelegate(Type type) =>
-            ExpressionGeneratorDelegateProvider.CreateSerializeDelegate(type, this);
+        public Delegate GetSerializeDelegate(Type type)
+        {
+            if (_serializeDelegates.TryGetValue(type, out var @delegate))
+                return @delegate;
+            return _serializeDelegates[type] = ExpressionGeneratorDelegateProvider.CreateSerializeDelegate(this, type);
+        }
 
-        public Expression GenerateDeserializeExpression(Type type, Expression bufferAccess)
+        public Expression GenerateDeserializeExpression(Type type, Expression buffer)
         {
             var provider = GetInterestedGeneratorProvider(type);
             if (provider == null)
                 ThrowHelpers.ThrowNoInterestedProvider(type);
-            return provider!.GenerateDeserializeExpression(this, type, bufferAccess);
+            return provider!.GenerateDeserializeExpression(this, type, buffer);
         }
 
-        public Delegate GetDeserializeDelegate(Type type) =>
-            ExpressionGeneratorDelegateProvider.CreateDeserializeDelegate(type, this);
+        public Delegate GetDeserializeDelegate(Type type)
+        {
+            if (_deserializeDelegates.TryGetValue(type, out var @delegate))
+                return @delegate;
+            return _deserializeDelegates[type] = ExpressionGeneratorDelegateProvider.CreateDeserializeDelegate(this, type);
+        }
 
-        public IReadOnlyList<ExpressionGeneratorProvider> GetExpressionGeneratorProviders() =>
+        public IReadOnlyList<ExpressionGeneratorProvider> GetExpressionGeneratorProviders() => 
             _expressionGeneratorProviders;
     }
 }

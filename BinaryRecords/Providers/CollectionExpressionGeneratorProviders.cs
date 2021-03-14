@@ -6,10 +6,11 @@ using System.Linq.Expressions;
 using System.Runtime.InteropServices;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
+using BinaryRecords.Expressions;
 using BinaryRecords.Util;
 using BinaryRecords.Extensions;
+using BinaryRecords.Implementations;
 using BinaryRecords.Records;
-using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -17,7 +18,8 @@ namespace BinaryRecords.Providers
     {
         public static readonly IReadOnlyList<ExpressionGeneratorProvider> Builtin = CreateBuiltinProviders().ToList();
 
-        public static unsafe void WriteBlittableArray<T>(ref SpanBufferWriter buffer, T[] values) where T : unmanaged
+        public static unsafe void WriteBlittableArray<T>(ref BinaryBufferWriter buffer, T[] values) 
+            where T : unmanaged
         {
             var size = sizeof(T) * values.Length;
             var bookmark = buffer.ReserveBookmark(size);
@@ -25,7 +27,8 @@ namespace BinaryRecords.Providers
                 (buffer, values) => MemoryMarshal.Cast<T, byte>(values.AsSpan()).CopyTo(buffer));
         }
 
-        public static unsafe void ReadBlittableArray<T>(ref SpanBufferReader buffer, T[] outValues) where T : unmanaged
+        public static unsafe void ReadBlittableArray<T>(ref BinaryBufferReader buffer, T[] outValues) 
+            where T : unmanaged
         {
             var size = sizeof(T) * outValues.Length;
             var values = buffer.ReadBytes(size);
@@ -34,11 +37,11 @@ namespace BinaryRecords.Providers
         }
         
         public static Expression GenerateSerializeEnumerable(
-            ITypingLibrary typingLibrary, 
-            Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess,
-            AutoVersioning? autoVersioning)
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression buffer,
+            Expression data,
+            VersionWriter? versioning = null)
         {
             var enumerableInterface = 
                 type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
@@ -51,17 +54,17 @@ namespace BinaryRecords.Providers
             var enumeratorType = typeof(IEnumerator<>).MakeGenericType(generics);
 
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+            versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
             
             var enumerable = blockBuilder.CreateVariable(enumerableType);
             var enumerator = blockBuilder.CreateVariable(enumeratorType);
             
-            blockBuilder += Expression.Assign(enumerable, Expression.Convert(dataAccess, enumerableType));
+            blockBuilder += Expression.Assign(enumerable, Expression.Convert(data, enumerableType));
             blockBuilder += Expression.Assign(enumerator, 
                 Expression.Call(enumerable, enumerableType.GetMethod("GetEnumerator")!));
             
-            var countBookmark = blockBuilder.CreateVariable<SpanBufferWriter.Bookmark>();
-            blockBuilder += Expression.Assign(countBookmark, BufferWriterExpressions.ReserveBookmark<ushort>(bufferAccess));
+            var countBookmark = blockBuilder.CreateVariable<BinaryBufferWriter.Bookmark>();
+            blockBuilder += Expression.Assign(countBookmark, BufferWriterExpressions.ReserveBookmark<ushort>(buffer));
 
             var written = blockBuilder.CreateVariable<ushort>();
             
@@ -73,23 +76,22 @@ namespace BinaryRecords.Providers
                     {
                         typingLibrary.GenerateSerializeExpression(
                             genericType, 
-                            Expression.PropertyOrField(enumerator, "Current"), 
-                            bufferAccess, 
-                            null),
+                            buffer, 
+                            Expression.PropertyOrField(enumerator, "Current")),
                         Expression.PostIncrementAssign(written)
                     }),
                     Expression.Break(loopExit))
             );
             blockBuilder += Expression.Label(loopExit);
-            blockBuilder += BufferWriterExpressions.WriteUInt16Bookmark(bufferAccess, countBookmark, written);
-            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+            blockBuilder += BufferWriterExpressions.WriteUInt16Bookmark(buffer, countBookmark, written);
+            versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
             return blockBuilder;
         }
 
         public static Expression GenerateDeserializeEnumerable(
-            ITypingLibrary typingLibrary, 
-            Type type, 
-            Expression bufferAccess, 
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression buffer,
             Type genericBackingType, 
             GenerateAddElementExpressionDelegate generateAddElement)
         {
@@ -113,7 +115,7 @@ namespace BinaryRecords.Providers
             var elementCount = blockBuilder.CreateVariable<int>();
             blockBuilder += Expression.Assign(elementCount, 
                 Expression.Convert(
-                    Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt16")!), 
+                    BufferReaderExpressions.ReadUInt16(buffer), 
                     typeof(int)));
 
             // now deserialize each element
@@ -124,6 +126,7 @@ namespace BinaryRecords.Providers
 
             var exitLabel = Expression.Label(constructingCollectionType);
             var counter = blockBuilder.CreateVariable<int>();
+            
             blockBuilder += Expression.Assign(counter, Expression.Constant(0));
             blockBuilder += Expression.Loop(
                 Expression.IfThenElse(
@@ -131,7 +134,7 @@ namespace BinaryRecords.Providers
                     Expression.Block(new []
                     {
                         generateAddElement(deserialized, genericType, 
-                            () => typingLibrary.GenerateDeserializeExpression(genericType, bufferAccess)),
+                            () => typingLibrary.GenerateDeserializeExpression(genericType, buffer)),
                         Expression.PostIncrementAssign(counter)
                     }),
                     Expression.Break(exitLabel, deserialized))
@@ -140,23 +143,22 @@ namespace BinaryRecords.Providers
         }
 
         public static Expression GenerateSlowSerializeArray(
-            ITypingLibrary typingLibrary, 
-            Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess,
-            AutoVersioning? autoVersioning)
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression buffer,
+            Expression data,
+            VersionWriter? versioning = null)
         {
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-            
-            var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
-            blockBuilder += Expression.Call(
-                bufferAccess,
-                typeof(SpanBufferWriter).GetMethod("WriteUInt16")!, 
+            versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+
+            var arrayLength = Expression.PropertyOrField(data, "Length");
+            blockBuilder += BufferWriterExpressions.WriteUInt16(
+                buffer,
                 Expression.Convert(arrayLength, typeof(ushort)));
-            
+
             var exitLabel = Expression.Label();
             var counter = blockBuilder.CreateVariable<int>();
             blockBuilder += Expression.Assign(counter, Expression.Constant(0));
@@ -166,47 +168,47 @@ namespace BinaryRecords.Providers
                     Expression.Block(
                         typingLibrary.GenerateSerializeExpression(
                             genericType, 
-                            Expression.ArrayAccess(dataAccess, counter), 
-                            bufferAccess,
-                            null),
+                            buffer, 
+                            Expression.ArrayAccess(data, counter)),
                         Expression.PostIncrementAssign(counter)
                     ),
                     Expression.Break(exitLabel))
             );
             blockBuilder += Expression.Label(exitLabel);
-            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+            versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
             return blockBuilder;    
         }
 
         public static Expression GenerateFastSerializeArray(
-            Type type, 
-            Expression dataAccess, 
-            Expression bufferAccess,
-            AutoVersioning? autoVersioning)
+            ITypingLibrary typingLibrary,
+            Type type,
+            Expression buffer,
+            Expression data,
+            VersionWriter? versioning = null)
         {
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             var blockBuilder = new ExpressionBlockBuilder();
-            autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+            versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
             
             // Write the element count
-            var arrayLength = Expression.PropertyOrField(dataAccess, "Length");
-            blockBuilder += Expression.Call(
-                bufferAccess,
-                typeof(SpanBufferWriter).GetMethod("WriteUInt16")!, 
+            var arrayLength = Expression.PropertyOrField(data, "Length");
+
+            blockBuilder += BufferWriterExpressions.WriteUInt16(
+                buffer,
                 Expression.Convert(arrayLength, typeof(ushort)));
-                        
+
             var writeArrayMethod = typeof(CollectionExpressionGeneratorProviders)
                 .GetMethod("WriteBlittableArray")!.MakeGenericMethod(genericType);
-            blockBuilder += Expression.Call(writeArrayMethod, bufferAccess, dataAccess);
-            autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+            blockBuilder += Expression.Call(writeArrayMethod, buffer, data);
+            versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
             return blockBuilder;
         }
 
         public static Expression GenerateSlowDeserializeArray(
-            ITypingLibrary typingLibrary, 
+            ITypingLibrary typingLibrary,
             Type type,
-            Expression arrayAccess, 
-            Expression bufferAccess)
+            Expression buffer,
+            Expression arrayAccess)
         {
             var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
             var blockBuilder = new ExpressionBlockBuilder();
@@ -221,7 +223,7 @@ namespace BinaryRecords.Providers
                     Expression.Block(
                         Expression.Assign(
                             Expression.ArrayAccess(arrayAccess, counter), 
-                            typingLibrary.GenerateDeserializeExpression(genericType, bufferAccess)),
+                            typingLibrary.GenerateDeserializeExpression(genericType, buffer)),
                         Expression.PostIncrementAssign(counter)
                     ),
                     Expression.Break(exitLabel))
@@ -251,9 +253,9 @@ namespace BinaryRecords.Providers
                 IsInterested: (type, library) => isInterested(type) && 
                                                  type.GetGenericArguments().All(library.IsTypeSerializable),
                 GenerateSerializeExpression: GenerateSerializeEnumerable,
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
-                    GenerateDeserializeEnumerable(typingLibrary, type, bufferAccess, genericBackingType, generateAddElement),
-                GenerateTypeRecord: (type, typeLibrary) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) => 
+                    GenerateDeserializeEnumerable(typingLibrary, type, buffer, genericBackingType, generateAddElement),
+                GenerateTypeRecord: (typeLibrary, type) =>
                 {
                     var enumerableInterface = 
                         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>) 
@@ -274,7 +276,7 @@ namespace BinaryRecords.Providers
                 IsInterested: (type, library) => (type.IsOrImplementsGenericType(typeof(IList<>)) || 
                                                   type.IsGenericType(typeof(IEnumerable<>))) && 
                                                   library.IsTypeSerializable(type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0]),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
 
@@ -283,18 +285,18 @@ namespace BinaryRecords.Providers
                     if (type.BaseType == typeof(Array) || type.IsGenericType(typeof(List<>)))
                     {
                         var backingArray = type.IsGenericType(typeof(List<>))
-                            ? Expression.PropertyOrField(dataAccess, "_items")
-                            : dataAccess;
+                            ? Expression.PropertyOrField(data, "_items")
+                            : data;
 
-                        return typingLibrary.IsTypeBlittable(genericType)
-                            ? GenerateFastSerializeArray(type, backingArray, bufferAccess, autoVersioning)
-                            : GenerateSlowSerializeArray(typingLibrary, type, backingArray, bufferAccess, autoVersioning);
+                        return typingLibrary.IsTypeBlittable(genericType) && BitConverter.IsLittleEndian
+                            ? GenerateFastSerializeArray(typingLibrary, type, buffer, backingArray, versioning)
+                            : GenerateSlowSerializeArray(typingLibrary, type, buffer, backingArray, versioning);
                     }
                     
                     // Its not a type we are optimized for so just generate the enum writer
-                    return GenerateSerializeEnumerable(typingLibrary, type, dataAccess, bufferAccess, autoVersioning);
+                    return GenerateSerializeEnumerable(typingLibrary, type, buffer, data, versioning);
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) =>
                 {
                     var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
                     var genericListType = typeof(List<>).MakeGenericType(genericType);
@@ -313,8 +315,9 @@ namespace BinaryRecords.Providers
                     // Read the element count
                     var elementCount = blockBuilder.CreateVariable<int>();
                     blockBuilder += Expression.Assign(elementCount, 
-                        Expression.Convert(Expression.Call(bufferAccess, 
-                            typeof(SpanBufferReader).GetMethod("ReadUInt16")!), typeof(int)));
+                        Expression.Convert(
+                            BufferReaderExpressions.ReadUInt16(buffer), 
+                            typeof(int)));
                     
                     // Construct our type
                     blockBuilder += Expression.Assign(
@@ -327,19 +330,18 @@ namespace BinaryRecords.Providers
                         : deserialized;
 
                     // Deserialize
-                    blockBuilder += typingLibrary.IsTypeBlittable(genericType)
-                            ? GenerateFastDeserializeArray(arrayType, backingArray, bufferAccess)
-                            : GenerateSlowDeserializeArray(typingLibrary, arrayType, backingArray, bufferAccess);
+                    blockBuilder += typingLibrary.IsTypeBlittable(genericType) && BitConverter.IsLittleEndian
+                            ? GenerateFastDeserializeArray(arrayType, backingArray, buffer)
+                            : GenerateSlowDeserializeArray(typingLibrary, arrayType, buffer, backingArray);
 
                     // If our array type is the generic list, we need to set _size after deserializing
                     if (arrayType == genericListType)
                         blockBuilder += Expression.Assign(Expression.PropertyOrField(deserialized, "_size"),
                             elementCount);
                     
-                    var returnLabel = Expression.Label(type);
-                    return blockBuilder += Expression.Label(returnLabel, deserialized);
+                    return blockBuilder += deserialized;
                 },
-                GenerateTypeRecord: (type, typingLibrary) =>
+                GenerateTypeRecord: (typingLibrary, type) =>
                 {
                     var genericType = type.GetGenericInterface(typeof(IEnumerable<>)).GetGenericArguments()[0];
                     return new ListTypeRecord(typingLibrary.GetTypeRecord(genericType));

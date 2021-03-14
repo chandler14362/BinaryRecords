@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using BinaryRecords.Abstractions;
+using BinaryRecords.Delegates;
+using BinaryRecords.Expressions;
 using BinaryRecords.Util;
 using BinaryRecords.Extensions;
 using BinaryRecords.Records;
-using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
@@ -23,56 +23,52 @@ namespace BinaryRecords.Providers
                 IsInterested: (type, typeLibrary) => 
                     type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) && 
                     typeLibrary.IsTypeSerializable(type.GetGenericArguments()[0]),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
                     
                     var endLabel = Expression.Label();
                     blockBuilder += Expression.IfThen(
                         Expression.Equal(
-                            Expression.Property(dataAccess, "HasValue"),
+                            Expression.Property(data, "HasValue"),
                             Expression.Constant(false)
                             ),
                         Expression.Block(
-                            Expression.Call(
-                                bufferAccess, 
-                                typeof(SpanBufferWriter).GetMethod("WriteUInt8")!, 
-                                Expression.Constant((byte) 0)),
+                            BufferWriterExpressions.WriteBool(buffer, Expression.Constant(false)),
                             Expression.Goto(endLabel)
                         )
                     );
-                    blockBuilder += Expression.Call(
-                        bufferAccess, 
-                        typeof(SpanBufferWriter).GetMethod("WriteUInt8")!,
-                        Expression.Constant((byte) 1));
-                    blockBuilder += typingLibrary.GenerateSerializeExpression(type.GetGenericArguments()[0],
-                        Expression.Property(dataAccess, "Value"), bufferAccess, null);
+                    blockBuilder += BufferWriterExpressions.WriteBool(buffer, Expression.Constant(true));
+                    blockBuilder += typingLibrary.GenerateSerializeExpression(
+                        type.GetGenericArguments()[0], 
+                        buffer, 
+                        Expression.Property(data, "Value"));
                     blockBuilder += Expression.Label(endLabel);
                     
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) =>
                 {
                     var nullableConstructor = type.GetConstructor(type.GetGenericArguments())!;
                     var blockBuilder = new ExpressionBlockBuilder();
                     var returnLabel = Expression.Label(type);
                     blockBuilder += Expression.IfThenElse(
                         Expression.Equal(
-                            Expression.Call(bufferAccess, typeof(SpanBufferReader).GetMethod("ReadUInt8")!), 
-                            Expression.Constant((byte) 0)),
+                            BufferReaderExpressions.ReadBool(buffer), 
+                            Expression.Constant(false)),
                         Expression.Return(returnLabel, Expression.Default(type)),
                         Expression.Return(
                             returnLabel,
                             Expression.New(
                                 nullableConstructor, 
-                                typingLibrary.GenerateDeserializeExpression(type.GetGenericArguments()[0], bufferAccess)
+                                typingLibrary.GenerateDeserializeExpression(type.GetGenericArguments()[0], buffer)
                                 )
-                        ));
+                            ));
                     return blockBuilder += Expression.Label(returnLabel, Expression.Default(type));
                 },
-                GenerateTypeRecord: (type, typingLibrary) => new SequenceTypeRecord(new []
+                GenerateTypeRecord: (typingLibrary, type) => new SequenceTypeRecord(new []
                 {
                     typingLibrary.GetTypeRecord(typeof(bool)),
                     typingLibrary.GetTypeRecord(type.GetGenericArguments()[0])
@@ -83,24 +79,23 @@ namespace BinaryRecords.Providers
                 Name: "EnumProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type.BaseType == typeof(Enum),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var enumType = type.GetFields()[0].FieldType;
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
                     blockBuilder += typingLibrary.GenerateSerializeExpression(
-                        enumType,
-                        Expression.Convert(dataAccess, enumType), 
-                        bufferAccess, 
-                        null);
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                        enumType, 
+                        buffer, 
+                        Expression.Convert(data, enumType));
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) => 
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) => 
                     Expression.Convert(
-                        typingLibrary.GenerateDeserializeExpression(type.GetFields()[0].FieldType, bufferAccess), 
+                        typingLibrary.GenerateDeserializeExpression(type.GetFields()[0].FieldType, buffer), 
                         type),
-                GenerateTypeRecord: (type, typingLibrary) => 
+                GenerateTypeRecord: (typingLibrary, type) => 
                     typingLibrary.GetTypeRecord(type.GetFields()[0].FieldType));
             
             // Provider for tuples
@@ -108,28 +103,25 @@ namespace BinaryRecords.Providers
                 Name: "TupleProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, library) => type.IsTuple() && type.GetGenericArguments().All(library.IsTypeSerializable),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-                    blockBuilder += type.GetGenericArguments().Select((genericType, i) => 
-                        typingLibrary.GenerateSerializeExpression(
-                            genericType, 
-                            Expression.PropertyOrField(dataAccess, $"Item{i + 1}"), 
-                            bufferAccess, 
-                            null)
-                        );
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += type.GetGenericArguments().Select((genericType, i) =>
+                        typingLibrary.GenerateSerializeExpression(genericType, buffer,
+                            Expression.PropertyOrField(data, $"Item{i + 1}")));
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) =>
                 {
                     var genericTypes = type.GetGenericArguments();
                     var constructor = type.GetConstructor(genericTypes)!;
-                    return Expression.New(constructor,
-                        genericTypes.Select(t => typingLibrary.GenerateDeserializeExpression(t, bufferAccess)));
+                    return Expression.New(
+                        constructor,
+                        genericTypes.Select(t => typingLibrary.GenerateDeserializeExpression(t, buffer)));
                 },
-                GenerateTypeRecord: (type, typingLibrary) =>
+                GenerateTypeRecord: (typingLibrary, type) =>
                 {
                     var genericTypes = type.GetGenericArguments();
                     var memberTypeRecords = genericTypes.Select(typingLibrary.GetTypeRecord).ToArray();
@@ -143,40 +135,36 @@ namespace BinaryRecords.Providers
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, library) => type.IsGenericType(typeof(KeyValuePair<,>)) && 
                                                  type.GetGenericArguments().All(library.IsTypeSerializable),
-                GenerateSerializeExpression: (serializer, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var generics = type.GetGenericArguments();
                     var keyType = generics[0];
                     var valueType = generics[1];
                     
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-
-                    blockBuilder += serializer.GenerateSerializeExpression(
-                        keyType,
-                        Expression.PropertyOrField(dataAccess, "Key"),
-                        bufferAccess, 
-                        null);
-                    blockBuilder += serializer.GenerateSerializeExpression(
-                        valueType,
-                        Expression.PropertyOrField(dataAccess, "Value"),
-                        bufferAccess, 
-                        null);
-                    
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += typingLibrary.GenerateSerializeExpression(
+                        keyType, 
+                        buffer, 
+                        Expression.PropertyOrField(data, "Key"));
+                    blockBuilder += typingLibrary.GenerateSerializeExpression(
+                        valueType, 
+                        buffer, 
+                        Expression.PropertyOrField(data, "Value"));
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (serializer, type, bufferAccess) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) =>
                 {
                     var generics = type.GetGenericArguments();
                     var keyType = generics[0];
                     var valueType = generics[1];
                     var ctor = type.GetConstructor(generics)!;
                     return Expression.New(ctor,
-                        serializer.GenerateDeserializeExpression(keyType, bufferAccess),
-                        serializer.GenerateDeserializeExpression(valueType, bufferAccess));
+                        typingLibrary.GenerateDeserializeExpression(keyType, buffer),
+                        typingLibrary.GenerateDeserializeExpression(valueType, buffer));
                 },
-                GenerateTypeRecord: (type, typingLibrary) =>
+                GenerateTypeRecord: (typingLibrary, type) =>
                 {
                     var memberTypes = type.GetGenericArguments().Select(typingLibrary.GetTypeRecord).ToArray();
                     return new SequenceTypeRecord(memberTypes);
@@ -219,27 +207,22 @@ namespace BinaryRecords.Providers
                 Name: "TimeSpanProvider",
                 Priority: ProviderPriority.Normal,
                 IsInterested: (type, _) => type == typeof(TimeSpan),
-                GenerateSerializeExpression: (typingLibrary, type, dataAccess, bufferAccess, autoVersioning) =>
+                GenerateSerializeExpression: (typingLibrary, type, buffer, data, versioning) =>
                 {
                     var blockBuilder = new ExpressionBlockBuilder();
-                    autoVersioning?.MarkVersioningStart(blockBuilder, bufferAccess);
-                    blockBuilder += Expression.Call(
-                        bufferAccess,
-                        typeof(SpanBufferWriter).GetMethod("WriteInt64")!,
-                        Expression.Property(dataAccess, "Ticks")
-                    );
-                    autoVersioning?.MarkVersioningEnd(blockBuilder, bufferAccess);
+                    versioning?.Start(blockBuilder, buffer, typingLibrary.BitSize);
+                    blockBuilder += BufferWriterExpressions.WriteInt64(
+                        buffer,
+                        Expression.Property(data, "Ticks"));
+                    versioning?.Stop(blockBuilder, buffer, typingLibrary.BitSize);
                     return blockBuilder;
                 },
-                GenerateDeserializeExpression: (typingLibrary, type, bufferAccess) =>
+                GenerateDeserializeExpression: (typingLibrary, type, buffer) =>
                     Expression.New(
                         typeof(TimeSpan).GetConstructor(new [] {typeof(long)})!,
-                        Expression.Call(
-                            bufferAccess,
-                            typeof(SpanBufferReader).GetMethod("ReadInt64")!
-                        )
+                        BufferReaderExpressions.ReadInt64(buffer)
                     ),
-                GenerateTypeRecord: (type, typingLibrary) =>
+                GenerateTypeRecord: (typingLibrary, type) =>
                 {
                     return new SequenceTypeRecord(new []{typingLibrary.GetTypeRecord(typeof(long))});
                 }

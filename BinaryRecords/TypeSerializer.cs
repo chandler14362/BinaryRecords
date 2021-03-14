@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
-using Krypton.Buffers;
+using BinaryRecords.Exceptions;
 
 namespace BinaryRecords
 {
@@ -17,20 +17,20 @@ namespace BinaryRecords
             _typingLibrary = typingLibrary;
         }
         
-        public void Serialize<T>(T obj, ref SpanBufferWriter buffer)
+        public void Serialize<T>(T obj, ref BinaryBufferWriter buffer)
         {
             var serializeDelegate = _typingLibrary.GetSerializeDelegate(typeof(T));
             ((GenericSerializeDelegate<T>) serializeDelegate)(obj, ref buffer);
         }
 
         // TODO: Non generic API
-        public void Serialize(Type type, object obj, ref SpanBufferWriter bufferWriter) =>
+        public void Serialize(Type type, object obj, ref BinaryBufferWriter bufferWriter) =>
             throw new NotImplementedException();
 
         public void Serialize<T, TState>(T obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512)
         {
             var serializeDelegate = _typingLibrary.GetSerializeDelegate(typeof(T));
-            var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
+            var buffer = new BinaryBufferWriter(stackalloc byte[stackSize]);
             ((GenericSerializeDelegate<T>) serializeDelegate)(obj, ref buffer);
             callback(buffer.Data, state);
         }
@@ -39,22 +39,10 @@ namespace BinaryRecords
         public void Serialize<TState>(Type type, object obj, TState state, ReadOnlySpanAction<byte, TState> callback, int stackSize = 512) =>
             throw new NotImplementedException();
 
-        public void Serialize<T>(T obj, StatelessSerializationCallback callback, int stackSize = 512)
-        {
-            var serializeDelegate = _typingLibrary.GetSerializeDelegate(typeof(T));
-            var buffer = new SpanBufferWriter(stackalloc byte[stackSize]);
-            ((GenericSerializeDelegate<T>) serializeDelegate)(obj, ref buffer);
-            callback(buffer.Data);
-        }
-
-        // TODO: Non generic API
-        public void Serialize(Type type, object obj, StatelessSerializationCallback callback, int stackSize = 512) =>
-            throw new NotImplementedException();
-
         public int Serialize<T>(T obj, Memory<byte> memory)
         {
             var serializeDelegate = _typingLibrary.GetSerializeDelegate(typeof(T));
-            var buffer = new SpanBufferWriter(memory.Span, resize: false);
+            var buffer = new BinaryBufferWriter(memory.Span, resize: false);
             try
             {
                 ((GenericSerializeDelegate<T>) serializeDelegate)(obj, ref buffer);
@@ -73,7 +61,7 @@ namespace BinaryRecords
         public byte[] Serialize<T>(T obj)
         {
             var serializeDelegate = _typingLibrary.GetSerializeDelegate(typeof(T));
-            var buffer = new SpanBufferWriter(stackalloc byte[512]);
+            var buffer = new BinaryBufferWriter(stackalloc byte[512]);
             ((GenericSerializeDelegate<T>) serializeDelegate)(obj, ref buffer);
             return buffer.Data.ToArray();
         }
@@ -84,7 +72,7 @@ namespace BinaryRecords
         
         public T Deserialize<T>(ReadOnlySpan<byte> buffer)
         {
-            var bufferReader = new SpanBufferReader(buffer);
+            var bufferReader = new BinaryBufferReader(buffer);
             return Deserialize<T>(ref bufferReader);
         }
 
@@ -92,14 +80,14 @@ namespace BinaryRecords
         public object Deserialize(Type type, ReadOnlySpan<byte> buffer) =>
             throw new NotImplementedException();
         
-        public T Deserialize<T>(ref SpanBufferReader bufferReader)
+        public T Deserialize<T>(ref BinaryBufferReader bufferReader)
         {
             var deserializeDelegate = _typingLibrary.GetDeserializeDelegate(typeof(T));
             return ((GenericDeserializeDelegate<T>) deserializeDelegate)(ref bufferReader);
         }
 
         // TODO: Non generic API
-        public object Deserialize(Type type, ref SpanBufferReader bufferReader) =>
+        public object Deserialize(Type type, ref BinaryBufferReader bufferReader) =>
             throw new NotImplementedException();
     }
 }

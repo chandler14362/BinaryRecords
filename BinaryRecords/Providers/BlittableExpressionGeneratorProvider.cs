@@ -7,7 +7,7 @@ namespace BinaryRecords.Providers
     public record BlittableExpressionGeneratorProvider(
             string Name,
             ProviderPriority Priority,
-            Func<Type, ITypingLibrary, bool> IsInterested,
+            ProviderIsInterestedDelegate IsInterested,
             GenerateSerializeExpressionDelegate GenerateSerializeExpression,
             GenerateDeserializeExpressionDelegate GenerateDeserializeExpression,
             GenerateTypeRecordDelegate GenerateTypeRecord)

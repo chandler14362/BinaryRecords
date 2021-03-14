@@ -3,42 +3,32 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using BinaryRecords.Abstractions;
 using BinaryRecords.Delegates;
-using Krypton.Buffers;
 
 namespace BinaryRecords.Providers
 {
     public static class ExpressionGeneratorDelegateProvider
     {
-        private static readonly Dictionary<Type, Delegate> CachedSerializeDelegates = new();
-        private static readonly Dictionary<Type, Delegate> CachedDeserializeDelegates = new();
-        
-        public static Delegate CreateSerializeDelegate(Type type, ITypingLibrary typingLibrary)
+        public static Delegate CreateSerializeDelegate(ITypingLibrary typingLibrary, Type type)
         {
-            if (CachedSerializeDelegates.TryGetValue(type, out var cachedDelegate))
-                return cachedDelegate;
-            
-            var bufferAccess = Expression.Parameter(typeof(SpanBufferWriter).MakeByRefType(), "buffer");
+            var bufferAccess = Expression.Parameter(typeof(BinaryBufferWriter).MakeByRefType(), "buffer");
             var dataAccess = Expression.Parameter(type, "obj");
-            
             var delegateType = typeof(GenericSerializeDelegate<>).MakeGenericType(type);
             var lambda = Expression.Lambda(
                 delegateType, 
-                typingLibrary.GenerateSerializeExpression(type, dataAccess, bufferAccess, null), 
+                typingLibrary.GenerateSerializeExpression(type, bufferAccess, dataAccess), 
                 dataAccess, bufferAccess);
-            return CachedSerializeDelegates[type] = lambda.Compile();
+            return lambda.Compile();
         }
 
-        public static Delegate CreateDeserializeDelegate(Type type, ITypingLibrary typingLibrary)
+        public static Delegate CreateDeserializeDelegate(ITypingLibrary typingLibrary, Type type)
         {
-            if (CachedDeserializeDelegates.TryGetValue(type, out var cachedDelegate))
-                return cachedDelegate;
-            var bufferAccess = Expression.Parameter(typeof(SpanBufferReader).MakeByRefType(), "buffer");
+            var bufferAccess = Expression.Parameter(typeof(BinaryBufferReader).MakeByRefType(), "buffer");
             var delegateType = typeof(GenericDeserializeDelegate<>).MakeGenericType(type);
             var lambda = Expression.Lambda(
                 delegateType, 
                 typingLibrary.GenerateDeserializeExpression(type, bufferAccess), 
                 bufferAccess);
-            return CachedDeserializeDelegates[type] = lambda.Compile();
+            return lambda.Compile();
         }
     }
 }
