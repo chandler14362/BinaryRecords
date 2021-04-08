@@ -23,10 +23,15 @@ namespace BinaryRecords.Providers
             var bufferWriter = new BinaryBufferWriter(keyBuffer);
             foreach (var (key, _) in constructableType.Members)
                 bufferWriter.WriteUInt32(key);
+#if NETSTANDARD2_0 || NETSTANDARD2_1
+            var md5Bytes = MD5.Create().ComputeHash(bufferWriter.Data.ToArray());
+            return CachedGuids[constructableType] = new Guid(md5Bytes);
+#else
             Span<byte> md5Bytes = stackalloc byte[16];
             if (!MD5.TryHashData(bufferWriter.Data, md5Bytes, out _))
                 throw new Exception("Error calculating constructable md5 hash");
             return CachedGuids[constructableType] = new Guid(md5Bytes);
+#endif
         }
     }
 }

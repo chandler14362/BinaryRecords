@@ -121,23 +121,33 @@ namespace BinaryRecords
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public float ReadSingle()
+        public unsafe float ReadSingle()
         {
             const int size = sizeof(float);
             ThrowIfEndOfBuffer(size);
 
+#if NET5_0
             var x = BinaryPrimitives.ReadSingleLittleEndian(_buffer[Offset..]);
+#else
+            var uintValue = BinaryPrimitives.ReadUInt32LittleEndian(_buffer[Offset..]);
+            var x = *(float*)&uintValue;
+#endif
             Offset += size;
             return x;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double ReadDouble()
+        public unsafe double ReadDouble()
         {
             const int size = sizeof(double);
             ThrowIfEndOfBuffer(size);
 
+#if NET5_0
             var x = BinaryPrimitives.ReadDoubleLittleEndian(_buffer[Offset..]);
+#else
+            var ulongValue = BinaryPrimitives.ReadUInt64LittleEndian(_buffer[Offset..]);
+            var x = *(double*)&ulongValue;
+#endif
             Offset += size;
             return x;
         }
@@ -146,10 +156,10 @@ namespace BinaryRecords
         {
             const int size = 16;
             ThrowIfEndOfBuffer(size);
-#if NETSTANDARD2_1
-            var guid = new Guid(_buffer.Slice(Offset, size));
-#else
+#if NETSTANDARD2_0
             var guid = new Guid(_buffer.Slice(Offset, size).ToArray());
+#else
+            var guid = new Guid(_buffer.Slice(Offset, size));
 #endif
             Offset += size;    
             return guid;
@@ -160,10 +170,10 @@ namespace BinaryRecords
         {
             var length = ReadUInt16();
             var bytes = ReadBytes(length);
-#if NETSTANDARD2_1
-            return encoding.GetString(bytes);
-#else
+#if NETSTANDARD2_0
             return encoding.GetString(bytes.ToArray());
+#else
+            return encoding.GetString(bytes);
 #endif
         }
 

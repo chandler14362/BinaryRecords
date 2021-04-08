@@ -89,7 +89,7 @@ namespace BinaryRecords
         public void WriteBool(bool x)
         {
             Reserve(1);
-            _buffer[_offset++] = x ? 1 : 0;
+            _buffer[_offset++] = x ? (byte)1 : (byte)0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -152,20 +152,28 @@ namespace BinaryRecords
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteSingle(float x)
+        public unsafe void WriteSingle(float x)
         {
             const int size = sizeof(float);
             Reserve(size);
+#if NET5_0
             BinaryPrimitives.WriteSingleLittleEndian(_buffer[_offset..], x);
+#else
+            BinaryPrimitives.WriteUInt32LittleEndian(_buffer[_offset..], *((uint*)&x));
+#endif
             _offset += size;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteDouble(double x)
+        public unsafe void WriteDouble(double x)
         {
             const int size = sizeof(double);
             Reserve(size);
+#if NET5_0
             BinaryPrimitives.WriteDoubleLittleEndian(_buffer[_offset..], x);
+#else
+            BinaryPrimitives.WriteUInt64LittleEndian(_buffer[_offset..], *((ulong*)&x));
+#endif
             _offset += size;
         }
 
@@ -173,10 +181,10 @@ namespace BinaryRecords
         {
             const int size = 16;
             Reserve(16);
-#if NETSTANDARD2_1
-            _ = guid.TryWriteBytes(_buffer.Slice(_offset));
-#else
+#if NETSTANDARD2_0
             guid.ToByteArray().AsSpan().CopyTo(_buffer.Slice(_offset, size));
+#else
+            _ = guid.TryWriteBytes(_buffer.Slice(_offset));
 #endif
             _offset += size;
         }
@@ -190,10 +198,10 @@ namespace BinaryRecords
             _offset += 2;
             
             var bytes = _buffer.Slice(_offset, byteCount);
-#if NETSTANDARD2_1
-            encoding.GetBytes(str.AsSpan(), bytes);
-#else
+#if NETSTANDARD2_0
             encoding.GetBytes(str).AsSpan().CopyTo(bytes);
+#else
+            encoding.GetBytes(str.AsSpan(), bytes);
 #endif
             _offset += byteCount;
         }
